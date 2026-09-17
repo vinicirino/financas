@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { FinanceProvider, useFinance } from './context/FinanceContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthScreen } from './components/AuthScreen';
 import { Header } from './components/Header';
 import { OverviewTab } from './components/OverviewTab';
 import { TransactionsTab } from './components/TransactionsTab';
@@ -176,10 +178,23 @@ function MainLayout() {
   );
 }
 
+function AppContent() {
+  const { isAuthenticated } = useAuth();
+
+  if (!isAuthenticated) {
+    return <AuthScreen />;
+  }
+
+  return <MainLayout />;
+}
+
 export default function App() {
   return (
-    <FinanceProvider>
-      <MainLayout />
-    </FinanceProvider>
+    <AuthProvider>
+      <FinanceProvider>
+        <AppContent />
+      </FinanceProvider>
+    </AuthProvider>
   );
 }
+

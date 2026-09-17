@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
-import { X, Download, Upload, RotateCcw, ShieldCheck, Database, CheckCircle2 } from 'lucide-react';
+import { X, Download, Upload, RotateCcw, ShieldCheck, Database, CheckCircle2, User as UserIcon, Lock, LogOut } from 'lucide-react';
 import { useFinance } from '../context/FinanceContext';
+import { useAuth } from '../context/AuthContext';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -12,6 +13,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
 }) => {
   const { exportDataJSON, importDataJSON, resetToDemoData } = useFinance();
+  const { currentUser, lockScreen, logout } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -68,6 +70,47 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         <div className="p-6 space-y-4">
           
+          {/* Account Profile Card */}
+          {currentUser && (
+            <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-emerald-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
+                    {currentUser.name ? currentUser.name.charAt(0) : 'U'}
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800">{currentUser.name}</h4>
+                    <p className="text-[11px] text-slate-500">{currentUser.email}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      lockScreen();
+                    }}
+                    className="p-1.5 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors border border-slate-200"
+                    title="Bloquear Tela"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      logout();
+                    }}
+                    className="p-1.5 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-slate-200"
+                    title="Sair da Conta"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {importStatus && (
             <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2 font-medium">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
