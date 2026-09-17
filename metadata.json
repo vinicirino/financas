@@ -1,0 +1,8 @@
+{
+  "name": "FinanControl - Gestão Financeira e Investimentos",
+  "description": "Sistema completo de finanças pessoais com controle de receitas, despesas, carteira de investimentos e relatórios detalhados de rentabilidade mensal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
