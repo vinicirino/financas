@@ -36,6 +36,7 @@ interface FinanceContextType {
   deleteDividend: (id: string) => void;
 
   // Backup & reset
+  clearDatabase: () => void;
   resetToDemoData: () => void;
   exportDataJSON: () => void;
   importDataJSON: (jsonString: string) => boolean;
@@ -59,12 +60,28 @@ interface FinanceContextType {
 const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
 
 const STORAGE_KEYS = {
-  TRANSACTIONS: 'financontrol_transactions_v1',
-  INVESTMENTS: 'financontrol_investments_v1',
-  DIVIDENDS: 'financontrol_dividends_v1',
-  PERFORMANCE: 'financontrol_performance_v1',
-  SELECTED_MONTH: 'financontrol_selected_month_v1'
+  TRANSACTIONS: 'financontrol_clean_v2_transactions',
+  INVESTMENTS: 'financontrol_clean_v2_investments',
+  DIVIDENDS: 'financontrol_clean_v2_dividends',
+  PERFORMANCE: 'financontrol_clean_v2_performance',
+  SELECTED_MONTH: 'financontrol_clean_v2_selected_month'
 };
+
+// Purge old mock storage keys once on load
+try {
+  const legacyDataKeys = [
+    'financontrol_transactions_v1',
+    'financontrol_investments_v1',
+    'financontrol_dividends_v1',
+    'financontrol_performance_v1',
+    'financontrol_selected_month_v1'
+  ];
+  legacyDataKeys.forEach(k => {
+    localStorage.removeItem(k);
+  });
+} catch {
+  // ignore
+}
 
 export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
@@ -221,19 +238,30 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setDividends(prev => prev.filter(div => div.id !== id));
   };
 
-  // Reset & Backup
-  const resetToDemoData = () => {
-    setTransactions(INITIAL_TRANSACTIONS);
-    setInvestments(INITIAL_INVESTMENTS);
-    setDividends(INITIAL_DIVIDENDS);
-    setMonthlyPerformances(INITIAL_MONTHLY_PERFORMANCE);
+  // Reset & Clear Database
+  const clearDatabase = () => {
+    setTransactions([]);
+    setInvestments([]);
+    setDividends([]);
+    setMonthlyPerformances([]);
     setSelectedMonth('2026-09');
-    localStorage.clear();
+    try {
+      localStorage.removeItem(STORAGE_KEYS.TRANSACTIONS);
+      localStorage.removeItem(STORAGE_KEYS.INVESTMENTS);
+      localStorage.removeItem(STORAGE_KEYS.DIVIDENDS);
+      localStorage.removeItem(STORAGE_KEYS.PERFORMANCE);
+    } catch (e) {
+      console.error('Error clearing database storage', e);
+    }
+  };
+
+  const resetToDemoData = () => {
+    clearDatabase();
   };
 
   const exportDataJSON = () => {
     const data = {
-      version: '1.0',
+      version: '2.0',
       exportDate: new Date().toISOString(),
       transactions,
       investments,
@@ -310,6 +338,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateAssetPrice,
         addDividend,
         deleteDividend,
+        clearDatabase,
         resetToDemoData,
         exportDataJSON,
         importDataJSON,

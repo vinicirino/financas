@@ -48,11 +48,28 @@ export const ProfitabilityReportTab: React.FC = () => {
 
   const [reportSubTab, setReportSubTab] = useState<'historico' | 'previsoes'>('historico');
 
-  // Find record for current selected month, or fallback to latest
+  // Find record for current selected month, or fallback to latest, or empty safe object
   const currentMonthReport = useMemo(() => {
     const found = monthlyPerformances.find(p => p.monthKey === selectedMonth);
     if (found) return found;
-    return monthlyPerformances[monthlyPerformances.length - 1];
+    if (monthlyPerformances.length > 0) {
+      return monthlyPerformances[monthlyPerformances.length - 1];
+    }
+    return {
+      monthKey: selectedMonth,
+      monthLabel: formatMonthShort(selectedMonth),
+      startingPortfolioValue: 0,
+      contributions: 0,
+      withdrawals: 0,
+      dividendsReceived: 0,
+      capitalGains: 0,
+      endingPortfolioValue: 0,
+      netProfit: 0,
+      monthlyYieldPercent: 0,
+      benchmarkCdiPercent: 0,
+      benchmarkIbovPercent: 0,
+      benchmarkIpcaPercent: 0
+    };
   }, [monthlyPerformances, selectedMonth]);
 
   // Annual cumulative calculations
@@ -204,9 +221,13 @@ export const ProfitabilityReportTab: React.FC = () => {
                 onChange={(e) => setSelectedMonth(e.target.value)}
                 className="px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20"
               >
-                {monthlyPerformances.map(p => (
-                  <option key={p.monthKey} value={p.monthKey}>{p.monthLabel} ({formatMonthYear(p.monthKey)})</option>
-                ))}
+                {monthlyPerformances.length > 0 ? (
+                  monthlyPerformances.map(p => (
+                    <option key={p.monthKey} value={p.monthKey}>{p.monthLabel} ({formatMonthYear(p.monthKey)})</option>
+                  ))
+                ) : (
+                  <option value={selectedMonth}>{formatMonthShort(selectedMonth)} ({formatMonthYear(selectedMonth)})</option>
+                )}
               </select>
             </div>
           )}
@@ -398,27 +419,34 @@ export const ProfitabilityReportTab: React.FC = () => {
         </div>
 
         <div className="h-72 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="month" stroke="#94a3b8" fontSize={11} tickLine={false} />
-              <YAxis stroke="#94a3b8" fontSize={11} tickFormatter={(v) => `${v}%`} tickLine={false} />
-              <Tooltip 
-                formatter={(val: any, name: any) => [`${Number(val).toFixed(2)}%`, name]}
-                contentStyle={{ 
-                  backgroundColor: '#0f172a', 
-                  borderRadius: '12px', 
-                  border: 'none', 
-                  color: '#fff', 
-                  fontSize: '12px' 
-                }}
-              />
-              <Legend verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px' }} />
-              <Bar dataKey="Rentabilidade Carteira (%)" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={28} />
-              <Line type="monotone" dataKey="CDI Benchmark (%)" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4 }} />
-              <Line type="monotone" dataKey="Ibovespa (%)" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
-            </ComposedChart>
-          </ResponsiveContainer>
+          {chartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="month" stroke="#94a3b8" fontSize={11} tickLine={false} />
+                <YAxis stroke="#94a3b8" fontSize={11} tickFormatter={(v) => `${v}%`} tickLine={false} />
+                <Tooltip 
+                  formatter={(val: any, name: any) => [`${Number(val).toFixed(2)}%`, name]}
+                  contentStyle={{ 
+                    backgroundColor: '#0f172a', 
+                    borderRadius: '12px', 
+                    border: 'none', 
+                    color: '#fff', 
+                    fontSize: '12px' 
+                  }}
+                />
+                <Legend verticalAlign="top" height={36} wrapperStyle={{ fontSize: '11px' }} />
+                <Bar dataKey="Rentabilidade Carteira (%)" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                <Line type="monotone" dataKey="CDI Benchmark (%)" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4 }} />
+                <Line type="monotone" dataKey="Ibovespa (%)" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-slate-400 text-xs">
+              <TrendingUp className="w-8 h-8 text-slate-300 mb-2" />
+              <span>Nenhum histórico mensal registrado no momento.</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -446,63 +474,71 @@ export const ProfitabilityReportTab: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {monthlyPerformances.map(p => {
-                const isCurrent = p.monthKey === selectedMonth;
-                const alpha = p.monthlyYieldPercent - p.benchmarkCdiPercent;
+              {monthlyPerformances.length > 0 ? (
+                monthlyPerformances.map(p => {
+                  const isCurrent = p.monthKey === selectedMonth;
+                  const alpha = p.monthlyYieldPercent - p.benchmarkCdiPercent;
 
-                return (
-                  <tr 
-                    key={p.monthKey} 
-                    className={`transition-colors cursor-pointer ${
-                      isCurrent ? 'bg-indigo-50/60 font-medium' : 'hover:bg-slate-50'
-                    }`}
-                    onClick={() => setSelectedMonth(p.monthKey)}
-                    title="Clique para selecionar este mês"
-                  >
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        {isCurrent && <span className="w-2 h-2 rounded-full bg-indigo-600" />}
-                        <span className="font-bold text-slate-900">{p.monthLabel}</span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono text-slate-700">
-                      {formatCurrency(p.startingPortfolioValue)}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono text-slate-700">
-                      {formatCurrency(p.contributions)}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono text-amber-700">
-                      +{formatCurrency(p.dividendsReceived)}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono">
-                      <span className={p.capitalGains >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
-                        {formatCurrency(p.capitalGains)}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono font-semibold">
-                      <span className={p.netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
-                        {formatCurrency(p.netProfit)}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
-                      {formatCurrency(p.endingPortfolioValue)}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono font-bold">
-                      <span className={p.monthlyYieldPercent >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
-                        {formatPercent(p.monthlyYieldPercent)}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono text-slate-700">
-                      {formatPercent(p.benchmarkCdiPercent, false)}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono font-semibold">
-                      <span className={alpha >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
-                        {formatPercent(alpha)}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
+                  return (
+                    <tr 
+                      key={p.monthKey} 
+                      className={`transition-colors cursor-pointer ${
+                        isCurrent ? 'bg-indigo-50/60 font-medium' : 'hover:bg-slate-50'
+                      }`}
+                      onClick={() => setSelectedMonth(p.monthKey)}
+                      title="Clique para selecionar este mês"
+                    >
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          {isCurrent && <span className="w-2 h-2 rounded-full bg-indigo-600" />}
+                          <span className="font-bold text-slate-900">{p.monthLabel}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono text-slate-700">
+                        {formatCurrency(p.startingPortfolioValue)}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono text-slate-700">
+                        {formatCurrency(p.contributions)}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono text-amber-700">
+                        +{formatCurrency(p.dividendsReceived)}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono">
+                        <span className={p.capitalGains >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                          {formatCurrency(p.capitalGains)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-semibold">
+                        <span className={p.netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                          {formatCurrency(p.netProfit)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
+                        {formatCurrency(p.endingPortfolioValue)}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-bold">
+                        <span className={p.monthlyYieldPercent >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                          {formatPercent(p.monthlyYieldPercent)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono text-slate-700">
+                        {formatPercent(p.benchmarkCdiPercent, false)}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-semibold">
+                        <span className={alpha >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                          {formatPercent(alpha)}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={10} className="py-8 text-center text-slate-400 text-xs">
+                    Nenhum registro histórico mensal no banco de dados. Os fechamentos mensais aparecerão aqui.
+                  </td>
+                </tr>
+              )}
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold text-slate-900">
@@ -564,45 +600,53 @@ export const ProfitabilityReportTab: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {assetPerformance.map(asset => {
-                const meta = ASSET_CLASS_LABELS[asset.assetClass] || { label: asset.assetClass, color: '#64748b', bgLight: '#f1f5f9' };
-                return (
-                  <tr key={asset.id} className="hover:bg-slate-50">
-                    <td className="py-3 px-4">
-                      <span className="font-bold text-slate-900">{asset.ticker}</span>
-                      <span className="text-[11px] text-slate-700 block truncate max-w-xs">{asset.name}</span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span 
-                        className="px-2 py-0.5 rounded-full text-[10px] font-semibold"
-                        style={{ backgroundColor: meta.bgLight, color: meta.color }}
-                      >
-                        {meta.label}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono text-slate-700">{formatCurrency(asset.invested)}</td>
-                    <td className="py-3 px-4 text-right font-mono font-medium text-slate-900">{formatCurrency(asset.current)}</td>
-                    <td className="py-3 px-4 text-right font-mono">
-                      <span className={asset.gain >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
-                        {formatCurrency(asset.gain)}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono text-amber-700">
-                      {asset.assetDivs > 0 ? `+${formatCurrency(asset.assetDivs)}` : '—'}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono font-bold">
-                      <span className={asset.totalReturn >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
-                        {formatCurrency(asset.totalReturn)}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono font-bold text-sm">
-                      <span className={asset.totalReturnPct >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
-                        {formatPercent(asset.totalReturnPct)}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
+              {assetPerformance.length > 0 ? (
+                assetPerformance.map(asset => {
+                  const meta = ASSET_CLASS_LABELS[asset.assetClass] || { label: asset.assetClass, color: '#64748b', bgLight: '#f1f5f9' };
+                  return (
+                    <tr key={asset.id} className="hover:bg-slate-50">
+                      <td className="py-3 px-4">
+                        <span className="font-bold text-slate-900">{asset.ticker}</span>
+                        <span className="text-[11px] text-slate-700 block truncate max-w-xs">{asset.name}</span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span 
+                          className="px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                          style={{ backgroundColor: meta.bgLight, color: meta.color }}
+                        >
+                          {meta.label}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono text-slate-700">{formatCurrency(asset.invested)}</td>
+                      <td className="py-3 px-4 text-right font-mono font-medium text-slate-900">{formatCurrency(asset.current)}</td>
+                      <td className="py-3 px-4 text-right font-mono">
+                        <span className={asset.gain >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                          {formatCurrency(asset.gain)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono text-amber-700">
+                        {asset.assetDivs > 0 ? `+${formatCurrency(asset.assetDivs)}` : '—'}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-bold">
+                        <span className={asset.totalReturn >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                          {formatCurrency(asset.totalReturn)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-sm">
+                        <span className={asset.totalReturnPct >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                          {formatPercent(asset.totalReturnPct)}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={8} className="py-8 text-center text-slate-400 text-xs">
+                    Nenhum ativo cadastrado na carteira no momento.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

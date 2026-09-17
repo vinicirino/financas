@@ -1,5 +1,16 @@
 import React, { useRef, useState } from 'react';
-import { X, Download, Upload, RotateCcw, ShieldCheck, Database, CheckCircle2, User as UserIcon, Lock, LogOut } from 'lucide-react';
+import { 
+  X, 
+  Download, 
+  Upload, 
+  RotateCcw, 
+  Database, 
+  CheckCircle2, 
+  Lock, 
+  LogOut, 
+  UserMinus, 
+  AlertTriangle 
+} from 'lucide-react';
 import { useFinance } from '../context/FinanceContext';
 import { useAuth } from '../context/AuthContext';
 
@@ -12,12 +23,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { exportDataJSON, importDataJSON, resetToDemoData } = useFinance();
-  const { currentUser, lockScreen, logout } = useAuth();
+  const { exportDataJSON, importDataJSON, resetToDemoData, clearDatabase } = useFinance();
+  const { currentUser, lockScreen, logout, deleteAccount } = useAuth();
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isConfirmingReset, setIsConfirmingReset] = useState(false);
+
+  // Account deletion state
+  const [isConfirmingDeleteAccount, setIsConfirmingDeleteAccount] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [alsoWipeFinanceData, setAlsoWipeFinanceData] = useState(true);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   if (!isOpen) return null;
 
@@ -51,6 +70,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onClose();
   };
 
+  const handleDeleteAccountSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDeleteError(null);
+
+    if (!deletePassword) {
+      setDeleteError('Por favor, informe sua senha para confirmar a exclusão.');
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      const res = await deleteAccount(deletePassword);
+      if (!res.success) {
+        setDeleteError(res.error || 'Não foi possível excluir a conta.');
+        return;
+      }
+
+      if (alsoWipeFinanceData) {
+        clearDatabase();
+      }
+
+      setIsConfirmingDeleteAccount(false);
+      setDeletePassword('');
+      onClose();
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
       <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -62,13 +110,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
+        <div className="p-6 space-y-4 max-h-[85vh] overflow-y-auto">
           
           {/* Account Profile Card */}
           {currentUser && (
@@ -90,7 +138,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       onClose();
                       lockScreen();
                     }}
-                    className="p-1.5 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors border border-slate-200"
+                    className="p-1.5 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors border border-slate-200 cursor-pointer"
                     title="Bloquear Tela"
                   >
                     <Lock className="w-3.5 h-3.5" />
@@ -101,14 +149,103 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       onClose();
                       logout();
                     }}
-                    className="p-1.5 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-slate-200"
+                    className="p-1.5 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-slate-200 cursor-pointer"
                     title="Sair da Conta"
                   >
                     <LogOut className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
+
+              {/* Account actions: delete option */}
+              <div className="mt-3 pt-2.5 border-t border-slate-200/70 flex items-center justify-between">
+                <span className="text-[11px] text-slate-500">Sessão criptografada (SHA-256)</span>
+                <button
+                  type="button"
+                  id="btn-open-delete-account"
+                  onClick={() => {
+                    setIsConfirmingDeleteAccount(!isConfirmingDeleteAccount);
+                    setDeleteError(null);
+                    setDeletePassword('');
+                  }}
+                  className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <UserMinus className="w-3.5 h-3.5" />
+                  <span>Excluir Conta</span>
+                </button>
+              </div>
             </div>
+          )}
+
+          {/* Delete Account Dialog */}
+          {isConfirmingDeleteAccount && currentUser && (
+            <form 
+              onSubmit={handleDeleteAccountSubmit}
+              className="p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-3 animate-in fade-in duration-150"
+            >
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-xs font-bold text-rose-900">Excluir Conta Permanentemente</h4>
+                  <p className="text-[11px] text-rose-700 mt-0.5">
+                    Esta ação removerá o usuário <strong>{currentUser.email}</strong>. Para confirmar, digite sua senha atual:
+                  </p>
+                </div>
+              </div>
+
+              {deleteError && (
+                <div className="p-2 bg-rose-100 border border-rose-300 text-rose-800 rounded-xl text-xs font-medium">
+                  {deleteError}
+                </div>
+              )}
+
+              <div>
+                <input
+                  id="input-delete-account-password"
+                  type="password"
+                  autoFocus
+                  required
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  placeholder="Digite sua senha de acesso"
+                  className="w-full px-3 py-2 bg-white border border-rose-300 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-rose-500/20 font-mono"
+                />
+              </div>
+
+              <label className="flex items-center gap-2 cursor-pointer text-[11px] text-rose-800 select-none">
+                <input
+                  type="checkbox"
+                  checked={alsoWipeFinanceData}
+                  onChange={(e) => setAlsoWipeFinanceData(e.target.checked)}
+                  className="rounded-md border-rose-300 text-rose-600 focus:ring-rose-500/20 w-3.5 h-3.5"
+                />
+                <span>Zerar também todos os lançamentos financeiros deste navegador</span>
+              </label>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => {
+                    setIsConfirmingDeleteAccount(false);
+                    setDeletePassword('');
+                    setDeleteError(null);
+                  }}
+                  className="flex-1 py-2 px-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  id="btn-confirm-delete-account"
+                  disabled={isDeleting}
+                  className="flex-1 py-2 px-3 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  <UserMinus className="w-3.5 h-3.5" />
+                  <span>{isDeleting ? 'Excluindo...' : 'Confirmar Exclusão'}</span>
+                </button>
+              </div>
+            </form>
           )}
 
           {importStatus && (
@@ -135,8 +272,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </p>
             <div className="flex items-center gap-2 pt-1">
               <button
+                id="btn-export-backup"
                 onClick={exportDataJSON}
-                className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold py-2.5 px-4 rounded-xl transition-colors shadow-xs"
+                className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold py-2.5 px-4 rounded-xl transition-colors shadow-xs cursor-pointer"
               >
                 <Download className="w-4 h-4" />
                 <span>Exportar Backup (JSON)</span>
@@ -162,8 +300,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               className="hidden"
             />
             <button
+              id="btn-import-backup"
               onClick={() => fileInputRef.current?.click()}
-              className="w-full flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold py-2.5 px-4 rounded-xl transition-colors"
+              className="w-full flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold py-2.5 px-4 rounded-xl transition-colors cursor-pointer"
             >
               <Upload className="w-4 h-4 text-indigo-600" />
               <span>Importar Arquivo JSON</span>
@@ -172,42 +311,44 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <div className="h-px bg-slate-100 my-2" />
 
-          {/* Reset Demo Data */}
+          {/* Reset All Data */}
           <div className="space-y-2">
             <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider text-rose-600">
-              Redefinir Dados
+              Zerar Banco de Dados
             </h4>
             <p className="text-xs text-slate-700">
-              Restaura a base com os dados demonstrativos de finanças pessoais e investimentos de 2026.
+              Limpa permanentemente todos os lançamentos financeiros, investimentos e proventos cadastrados no navegador.
             </p>
 
             {isConfirmingReset ? (
               <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl space-y-2">
                 <p className="text-xs font-semibold text-rose-800">
-                  Deseja realmente restaurar os dados de demonstração? Seus dados atuais serão substituídos.
+                  Deseja realmente zerar todo o banco de dados? Esta ação apagará todas as transações e ativos.
                 </p>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setIsConfirmingReset(false)}
-                    className="flex-1 px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-lg"
+                    className="flex-1 px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-lg cursor-pointer"
                   >
                     Cancelar
                   </button>
                   <button
+                    id="btn-confirm-clear-db"
                     onClick={handleConfirmReset}
-                    className="flex-1 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-xs"
+                    className="flex-1 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer"
                   >
-                    Confirmar Restauração
+                    Confirmar Limpeza Total
                   </button>
                 </div>
               </div>
             ) : (
               <button
+                id="btn-open-clear-db"
                 onClick={() => setIsConfirmingReset(true)}
                 className="w-full flex items-center justify-center gap-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold py-2.5 px-4 rounded-xl transition-colors cursor-pointer"
               >
                 <RotateCcw className="w-4 h-4" />
-                <span>Restaurar Dados Demonstrativos</span>
+                <span>Zerar Banco de Dados (Limpar Tudo)</span>
               </button>
             )}
           </div>

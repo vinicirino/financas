@@ -10,16 +10,32 @@ interface AuthContextType {
   logout: () => void;
   lockScreen: () => void;
   unlockScreen: (password: string) => Promise<{ success: boolean; error?: string }>;
+  deleteAccount: (password: string) => Promise<{ success: boolean; error?: string }>;
   registeredUsers: User[];
-  demoAccounts: { email: string; pass: string; name: string }[];
 }
 
 const STORAGE_KEYS = {
-  USERS: 'financontrol_auth_users_v1',
-  ACTIVE_USER_ID: 'financontrol_auth_active_user_id_v1',
-  IS_LOCKED: 'financontrol_auth_is_locked_v1',
-  REMEMBER_ME: 'financontrol_auth_remember_me_v1',
+  USERS: 'financontrol_auth_users_clean_v2',
+  ACTIVE_USER_ID: 'financontrol_auth_active_user_id_clean_v2',
+  IS_LOCKED: 'financontrol_auth_is_locked_clean_v2',
+  REMEMBER_ME: 'financontrol_auth_remember_me_clean_v2',
 };
+
+// Purge old demo storage keys once on load
+try {
+  const legacyKeys = [
+    'financontrol_auth_users_v1',
+    'financontrol_auth_active_user_id_v1',
+    'financontrol_auth_is_locked_v1',
+    'financontrol_auth_remember_me_v1'
+  ];
+  legacyKeys.forEach(k => {
+    localStorage.removeItem(k);
+    sessionStorage.removeItem(k);
+  });
+} catch {
+  // ignore
+}
 
 // SHA-256 password hashing with fallback
 async function hashPassword(password: string): Promise<string> {
@@ -35,7 +51,7 @@ async function hashPassword(password: string): Promise<string> {
     console.warn('SubtleCrypto error, falling back to simple hash', e);
   }
   
-  // Fallback simple deterministic hash
+  // Fallback deterministic hash
   let hash = 0;
   const str = password + '_financontrol_salt_2026';
   for (let i = 0; i < str.length; i++) {
@@ -46,22 +62,10 @@ async function hashPassword(password: string): Promise<string> {
   return 'simple_' + Math.abs(hash).toString(16);
 }
 
-const DEMO_ACCOUNTS = [
-  {
-    email: 'vinicirino@gmail.com',
-    pass: '123456',
-    name: 'Vinicius Cirino'
-  },
-  {
-    email: 'admin@financontrol.com',
-    pass: 'admin123',
-    name: 'Administrador'
-  }
-];
-
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Starts completely clean with no registered users
   const [registeredUsers, setRegisteredUsers] = useState<User[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.USERS);
@@ -94,49 +98,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   });
 
-  // Seed default demo accounts if not existing
+  // Save users changes to localStorage
   useEffect(() => {
-    const initDemoAccounts = async () => {
-      const existing = [...registeredUsers];
-      let changed = false;
-
-      for (const demo of DEMO_ACCOUNTS) {
-        const found = existing.some(u => u.email.toLowerCase() === demo.email.toLowerCase());
-        if (!found) {
-          const passHash = await hashPassword(demo.pass);
-          existing.push({
-            id: 'user_' + demo.email.replace(/[^a-zA-Z0-9]/g, '_'),
-            name: demo.name,
-            email: demo.email,
-            passwordHash: passHash,
-            createdAt: new Date().toISOString(),
-            lastLoginAt: new Date().toISOString()
-          });
-          changed = true;
-        }
-      }
-
-      if (changed || existing.length === 0) {
-        setRegisteredUsers(existing);
-        try {
-          localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(existing));
-        } catch (e) {
-          console.error(e);
-        }
-      }
-    };
-
-    initDemoAccounts();
-  }, []);
-
-  // Save users changes
-  useEffect(() => {
-    if (registeredUsers.length > 0) {
-      try {
-        localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(registeredUsers));
-      } catch (e) {
-        console.error(e);
-      }
+    try {
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(registeredUsers));
+    } catch (e) {
+      console.error(e);
     }
   }, [registeredUsers]);
 
@@ -155,7 +122,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user) {
       return { 
         success: false, 
-        error: 'Nenhum usuário encontrado com este e-mail. Verifique a digitação ou crie uma nova conta.' 
+        error: 'Nenhum usuário cadastrado com este e-mail. Crie sua conta na aba Criar Nova Conta.' 
       };
     }
 
@@ -163,7 +130,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (user.passwordHash !== hashedInput) {
       return { 
         success: false, 
-        error: 'Senha incorreta. Por favor, tente novamente ou use a conta de demonstração.' 
+        error: 'Senha incorreta. Por favor, verifique seus dados e tente novamente.' 
       };
     }
 
@@ -289,6 +256,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true };
   };
 
+  // Delete account handler
+  const deleteAccount = async (password: string): Promise<{ success: boolean; error?: string }> => {
+    if (!currentUser) {
+      return { success: false, error: 'Nenhum usuário ativo para excluir.' };
+    }
+
+    const hashedInput = await hashPassword(password);
+    if (currentUser.passwordHash !== hashedInput) {
+      return { success: false, error: 'Senha incorreta. Não foi possível confirmar a exclusão da conta.' };
+    }
+
+    const targetId = currentUser.id;
+    const remainingUsers = registeredUsers.filter(u => u.id !== targetId);
+
+    setRegisteredUsers(remainingUsers);
+    setCurrentUserId(null);
+    setIsLocked(false);
+
+    try {
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(remainingUsers));
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_USER_ID);
+      sessionStorage.removeItem(STORAGE_KEYS.ACTIVE_USER_ID);
+      sessionStorage.removeItem(STORAGE_KEYS.IS_LOCKED);
+    } catch (e) {
+      console.error('Error updating storage after deleteAccount', e);
+    }
+
+    return { success: true };
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -300,8 +297,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout,
         lockScreen,
         unlockScreen,
-        registeredUsers,
-        demoAccounts: DEMO_ACCOUNTS
+        deleteAccount,
+        registeredUsers
       }}
     >
       {children}

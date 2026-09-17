@@ -8,12 +8,10 @@ import {
   User as UserIcon, 
   ShieldCheck, 
   ArrowRight, 
-  Sparkles, 
   CheckCircle2, 
   AlertCircle,
   LogOut,
-  TrendingUp,
-  PieChart
+  UserPlus
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -24,11 +22,14 @@ export const AuthScreen: React.FC = () => {
     currentUser, 
     isLocked, 
     unlockScreen, 
-    logout, 
-    demoAccounts 
+    logout,
+    registeredUsers 
   } = useAuth();
 
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  // If there are no accounts registered yet, default to 'register'
+  const [mode, setMode] = useState<'login' | 'register'>(() => {
+    return registeredUsers.length === 0 ? 'register' : 'login';
+  });
   
   // Login form state
   const [email, setEmail] = useState('');
@@ -79,11 +80,11 @@ export const AuthScreen: React.FC = () => {
     setSuccessMsg(null);
 
     if (!name.trim()) {
-      setErrorMsg('Por favor, informe seu nome.');
+      setErrorMsg('Por favor, informe seu nome completo.');
       return;
     }
     if (!regEmail.trim() || !regEmail.includes('@')) {
-      setErrorMsg('Por favor, informe um e-mail válido.');
+      setErrorMsg('Por favor, informe um endereço de e-mail válido.');
       return;
     }
     if (!regPassword || regPassword.length < 4) {
@@ -129,19 +130,6 @@ export const AuthScreen: React.FC = () => {
     }
   };
 
-  // Fast demo account login
-  const handleQuickDemo = async (demoEmail: string, demoPass: string) => {
-    setEmail(demoEmail);
-    setPassword(demoPass);
-    setErrorMsg(null);
-    setIsLoading(true);
-    try {
-      await login(demoEmail, demoPass, true);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   // If locked screen for active user
   if (isLocked && currentUser) {
     return (
@@ -179,24 +167,20 @@ export const AuthScreen: React.FC = () => {
               <div className="relative">
                 <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                 <input
-                  type={showPassword ? 'text' : 'password'}
+                  id="input-unlock-password"
+                  type="password"
+                  autoFocus
+                  required
                   value={lockPassword}
                   onChange={(e) => setLockPassword(e.target.value)}
-                  placeholder="Sua senha"
-                  autoFocus
-                  className="w-full pl-10 pr-10 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all font-mono"
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all font-mono"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-200"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
               </div>
             </div>
 
             <button
+              id="btn-submit-unlock"
               type="submit"
               disabled={isLoading}
               className="w-full py-3 bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white font-semibold rounded-xl text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
@@ -241,7 +225,7 @@ export const AuthScreen: React.FC = () => {
             FinanControl Pro
           </h1>
           <p className="mt-2 text-xs sm:text-sm text-slate-400">
-            Autenticação segura para gestão financeira e investimentos
+            Gestão financeira pessoal e controle de investimentos
           </p>
         </div>
 
@@ -284,6 +268,17 @@ export const AuthScreen: React.FC = () => {
             </button>
           </div>
 
+          {/* First time clean notice when no accounts exist */}
+          {registeredUsers.length === 0 && mode === 'register' && (
+            <div className="mb-5 p-3.5 bg-indigo-950/60 border border-indigo-800/40 rounded-2xl text-xs text-indigo-200 flex items-start gap-2.5">
+              <UserPlus className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-white block">Primeiro Acesso ao Sistema</span>
+                <span>Nenhuma conta configurada ainda. Crie seu usuário master para iniciar a gestão com a base limpa.</span>
+              </div>
+            </div>
+          )}
+
           {/* Error / Success Feedback */}
           {errorMsg && (
             <div className="mb-4 p-3 bg-rose-500/20 border border-rose-500/30 text-rose-300 rounded-xl text-xs flex items-center gap-2 animate-in fade-in">
@@ -302,9 +297,22 @@ export const AuthScreen: React.FC = () => {
           {/* Form: LOGIN */}
           {mode === 'login' ? (
             <form onSubmit={handleLoginSubmit} className="space-y-4">
+              {registeredUsers.length === 0 && (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-xl text-xs flex items-center justify-between">
+                  <span>Nenhuma conta cadastrada ainda.</span>
+                  <button
+                    type="button"
+                    onClick={() => setMode('register')}
+                    className="underline font-bold text-amber-200 hover:text-white"
+                  >
+                    Criar Conta
+                  </button>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  E-mail ou Usuário
+                  E-mail
                 </label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
@@ -342,7 +350,7 @@ export const AuthScreen: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-200"
+                    className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-200 cursor-pointer"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -386,7 +394,7 @@ export const AuthScreen: React.FC = () => {
                     required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Seu nome"
+                    placeholder="Seu nome completo"
                     className="w-full pl-10 pr-3 py-2.5 bg-slate-950/60 border border-slate-700/80 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-hidden focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
                   />
                 </div>
@@ -413,7 +421,7 @@ export const AuthScreen: React.FC = () => {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Criar Senha (mínimo 4 dígitos)
+                  Criar Senha (mínimo 4 caracteres)
                 </label>
                 <div className="relative">
                   <KeyRound className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
@@ -429,7 +437,7 @@ export const AuthScreen: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-200"
+                    className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-200 cursor-pointer"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -466,38 +474,6 @@ export const AuthScreen: React.FC = () => {
             </form>
           )}
 
-          {/* Quick Demo Access Bar */}
-          <div className="mt-6 pt-5 border-t border-slate-800">
-            <div className="p-3.5 rounded-2xl bg-indigo-950/50 border border-indigo-800/40 text-xs">
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-semibold text-indigo-300 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                  Acesso de Demonstração
-                </span>
-                <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/80 border border-emerald-800/50 px-2 py-0.5 rounded-full">
-                  Pronto para testar
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-400 mb-3">
-                Clique abaixo para preencher as credenciais de teste pré-configuradas:
-              </p>
-              
-              <div className="space-y-2">
-                {demoAccounts.map((demo) => (
-                  <button
-                    key={demo.email}
-                    type="button"
-                    onClick={() => handleQuickDemo(demo.email, demo.pass)}
-                    className="w-full py-2 px-3 bg-indigo-900/40 hover:bg-indigo-800/50 border border-indigo-700/40 text-indigo-200 hover:text-white rounded-xl text-xs font-semibold flex items-center justify-between transition-colors cursor-pointer"
-                  >
-                    <span className="truncate">{demo.name} ({demo.email})</span>
-                    <span className="text-[10px] font-mono text-slate-400 shrink-0 ml-2">Senha: {demo.pass}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
         </div>
 
         {/* Security badges */}
@@ -509,7 +485,7 @@ export const AuthScreen: React.FC = () => {
           <span>•</span>
           <span>Dados Protegidos Localmente</span>
           <span>•</span>
-          <span>Bloqueio Automático</span>
+          <span>Bloqueio de Sessão</span>
         </div>
 
       </div>
