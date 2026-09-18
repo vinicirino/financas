@@ -15,7 +15,8 @@ import {
   Wallet,
   User as UserIcon,
   Lock,
-  LogOut
+  LogOut,
+  Cloud
 } from 'lucide-react';
 import { useFinance } from '../context/FinanceContext';
 import { useAuth } from '../context/AuthContext';
@@ -38,8 +39,8 @@ export const Header: React.FC<HeaderProps> = ({
   activeTab,
   setActiveTab,
 }) => {
-  const { selectedMonth, setSelectedMonth, metrics } = useFinance();
-  const { currentUser, lockScreen, logout } = useAuth();
+  const { selectedMonth, setSelectedMonth, metrics, isSaving } = useFinance();
+  const { currentUser, lockScreen, logout, isCloudConnected } = useAuth();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
   // Navigation between months
@@ -227,11 +228,19 @@ export const Header: React.FC<HeaderProps> = ({
                         <div className="px-4 py-2.5 border-b border-slate-100">
                           <p className="text-xs font-bold text-slate-800 truncate">{currentUser.name}</p>
                           <p className="text-[11px] text-slate-500 truncate">{currentUser.email}</p>
-                          <div className="flex items-center gap-1.5 mt-2">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                            <span className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider">
-                              Autenticado
-                            </span>
+                          <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-slate-100">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`w-2 h-2 rounded-full ${isCloudConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                              <span className="text-[10px] font-semibold text-slate-700 uppercase tracking-wider">
+                                {isCloudConnected ? 'Supabase Nuvem' : 'Local Fallback'}
+                              </span>
+                            </div>
+                            {isSaving && (
+                              <span className="text-[10px] font-medium text-indigo-600 flex items-center gap-1">
+                                <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                                Sincronizando
+                              </span>
+                            )}
                           </div>
                         </div>
 

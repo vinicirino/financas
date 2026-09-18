@@ -68,7 +68,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  passwordHash: string;
+  passwordHash?: string;
   avatarUrl?: string;
   createdAt: string;
   lastLoginAt?: string;

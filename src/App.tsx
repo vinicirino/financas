@@ -179,7 +179,16 @@ function MainLayout() {
 }
 
 function AppContent() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isAuthLoading } = useAuth();
+
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
+        <div className="w-10 h-10 border-3 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin mb-3" />
+        <p className="text-xs font-semibold text-slate-400">Conectando à nuvem...</p>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return <AuthScreen />;

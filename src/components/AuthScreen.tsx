@@ -23,13 +23,11 @@ export const AuthScreen: React.FC = () => {
     isLocked, 
     unlockScreen, 
     logout,
-    registeredUsers 
+    registeredUsers,
+    isCloudConnected
   } = useAuth();
 
-  // If there are no accounts registered yet, default to 'register'
-  const [mode, setMode] = useState<'login' | 'register'>(() => {
-    return registeredUsers.length === 0 ? 'register' : 'login';
-  });
+  const [mode, setMode] = useState<'login' | 'register'>('login');
   
   // Login form state
   const [email, setEmail] = useState('');
@@ -268,14 +266,22 @@ export const AuthScreen: React.FC = () => {
             </button>
           </div>
 
-          {/* First time clean notice when no accounts exist */}
-          {registeredUsers.length === 0 && mode === 'register' && (
-            <div className="mb-5 p-3.5 bg-indigo-950/60 border border-indigo-800/40 rounded-2xl text-xs text-indigo-200 flex items-start gap-2.5">
-              <UserPlus className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+          {/* Supabase Cloud Status */}
+          {!isCloudConnected ? (
+            <div className="mb-4 p-3 bg-amber-500/15 border border-amber-500/30 text-amber-200 rounded-2xl text-xs flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
               <div>
-                <span className="font-bold text-white block">Primeiro Acesso ao Sistema</span>
-                <span>Nenhuma conta configurada ainda. Crie seu usuário master para iniciar a gestão com a base limpa.</span>
+                <span className="font-bold text-amber-100 block">Supabase: Credenciais Pendentes</span>
+                <span>Configure <code className="bg-amber-950/60 px-1 py-0.5 rounded text-white font-mono">VITE_SUPABASE_URL</code> e <code className="bg-amber-950/60 px-1 py-0.5 rounded text-white font-mono">VITE_SUPABASE_ANON_KEY</code> no arquivo .env para persistência na nuvem.</span>
               </div>
+            </div>
+          ) : (
+            <div className="mb-4 p-2.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 rounded-xl text-xs flex items-center justify-between">
+              <span className="flex items-center gap-1.5 font-medium">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                Supabase Auth Online
+              </span>
+              <span className="text-[10px] text-emerald-400/80">Sincronização Ativa</span>
             </div>
           )}
 
@@ -297,18 +303,6 @@ export const AuthScreen: React.FC = () => {
           {/* Form: LOGIN */}
           {mode === 'login' ? (
             <form onSubmit={handleLoginSubmit} className="space-y-4">
-              {registeredUsers.length === 0 && (
-                <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-xl text-xs flex items-center justify-between">
-                  <span>Nenhuma conta cadastrada ainda.</span>
-                  <button
-                    type="button"
-                    onClick={() => setMode('register')}
-                    className="underline font-bold text-amber-200 hover:text-white"
-                  >
-                    Criar Conta
-                  </button>
-                </div>
-              )}
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">

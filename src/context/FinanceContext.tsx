@@ -1,16 +1,13 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { 
   Transaction, 
   InvestmentAsset, 
   DividendRecord, 
   MonthlyPerformanceRecord 
 } from '../types';
-import { 
-  INITIAL_TRANSACTIONS, 
-  INITIAL_INVESTMENTS, 
-  INITIAL_DIVIDENDS, 
-  INITIAL_MONTHLY_PERFORMANCE 
-} from '../data/initialData';
+import { financeService } from '../services/financeService';
+import { useAuth } from './AuthContext';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 interface FinanceContextType {
   transactions: Transaction[];
@@ -20,26 +17,37 @@ interface FinanceContextType {
   selectedMonth: string; // "YYYY-MM"
   setSelectedMonth: (month: string) => void;
   
+  // Loading and sync status
+  isLoadingData: boolean;
+  isSaving: boolean;
+  syncError: string | null;
+  clearSyncError: () => void;
+
+  // Local-to-Cloud Migration
+  hasLocalDataToMigrate: boolean;
+  isMigratedToCloud: boolean;
+  migrateLocalDataToCloud: () => Promise<{ success: boolean; message: string }>;
+
   // Transaction actions
-  addTransaction: (tx: Omit<Transaction, 'id'>) => void;
-  updateTransaction: (tx: Transaction) => void;
-  deleteTransaction: (id: string) => void;
+  addTransaction: (tx: Omit<Transaction, 'id'>) => Promise<void>;
+  updateTransaction: (tx: Transaction) => Promise<void>;
+  deleteTransaction: (id: string) => Promise<void>;
   
   // Investment actions
-  addInvestment: (asset: Omit<InvestmentAsset, 'id'>) => void;
-  updateInvestment: (asset: InvestmentAsset) => void;
-  deleteInvestment: (id: string) => void;
-  updateAssetPrice: (id: string, newPrice: number) => void;
+  addInvestment: (asset: Omit<InvestmentAsset, 'id'>) => Promise<void>;
+  updateInvestment: (asset: InvestmentAsset) => Promise<void>;
+  deleteInvestment: (id: string) => Promise<void>;
+  updateAssetPrice: (id: string, newPrice: number) => Promise<void>;
   
   // Dividend actions
-  addDividend: (div: Omit<DividendRecord, 'id'>) => void;
-  deleteDividend: (id: string) => void;
+  addDividend: (div: Omit<DividendRecord, 'id'>) => Promise<void>;
+  deleteDividend: (id: string) => Promise<void>;
 
   // Backup & reset
-  clearDatabase: () => void;
-  resetToDemoData: () => void;
+  clearDatabase: () => Promise<void>;
+  resetToDemoData: () => Promise<void>;
   exportDataJSON: () => void;
-  importDataJSON: (jsonString: string) => boolean;
+  importDataJSON: (jsonString: string) => Promise<boolean>;
 
   // Computed metrics
   metrics: {
@@ -59,170 +67,335 @@ interface FinanceContextType {
 
 const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
 
-const STORAGE_KEYS = {
+const LOCAL_STORAGE_KEYS = {
   TRANSACTIONS: 'financontrol_clean_v2_transactions',
   INVESTMENTS: 'financontrol_clean_v2_investments',
   DIVIDENDS: 'financontrol_clean_v2_dividends',
   PERFORMANCE: 'financontrol_clean_v2_performance',
-  SELECTED_MONTH: 'financontrol_clean_v2_selected_month'
+  SELECTED_MONTH: 'financontrol_clean_v2_selected_month',
+  MIGRATION_FLAG: 'financontrol_migrated_to_supabase_v1'
 };
 
-// Purge old mock storage keys once on load
-try {
-  const legacyDataKeys = [
-    'financontrol_transactions_v1',
-    'financontrol_investments_v1',
-    'financontrol_dividends_v1',
-    'financontrol_performance_v1',
-    'financontrol_selected_month_v1'
-  ];
-  legacyDataKeys.forEach(k => {
-    localStorage.removeItem(k);
-  });
-} catch {
-  // ignore
-}
-
 export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [transactions, setTransactions] = useState<Transaction[]>(() => {
+  const { currentUser, isAuthenticated } = useAuth();
+
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [investments, setInvestments] = useState<InvestmentAsset[]>([]);
+  const [dividends, setDividends] = useState<DividendRecord[]>([]);
+  const [monthlyPerformances, setMonthlyPerformances] = useState<MonthlyPerformanceRecord[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState<string>('2026-09');
+
+  const [isLoadingData, setIsLoadingData] = useState<boolean>(true);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+
+  const [hasLocalDataToMigrate, setHasLocalDataToMigrate] = useState<boolean>(false);
+  const [isMigratedToCloud, setIsMigratedToCloud] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
-      return saved ? JSON.parse(saved) : INITIAL_TRANSACTIONS;
+      return localStorage.getItem(LOCAL_STORAGE_KEYS.MIGRATION_FLAG) === 'true';
     } catch {
-      return INITIAL_TRANSACTIONS;
+      return false;
     }
   });
 
-  const [investments, setInvestments] = useState<InvestmentAsset[]>(() => {
+  // Check if there is existing local storage data that can be migrated to Supabase
+  const checkLocalData = useCallback(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEYS.INVESTMENTS);
-      return saved ? JSON.parse(saved) : INITIAL_INVESTMENTS;
+      const localTx = localStorage.getItem(LOCAL_STORAGE_KEYS.TRANSACTIONS);
+      const localInv = localStorage.getItem(LOCAL_STORAGE_KEYS.INVESTMENTS);
+      const localDiv = localStorage.getItem(LOCAL_STORAGE_KEYS.DIVIDENDS);
+
+      const parsedTx = localTx ? JSON.parse(localTx) : [];
+      const parsedInv = localInv ? JSON.parse(localInv) : [];
+      const parsedDiv = localDiv ? JSON.parse(localDiv) : [];
+
+      const totalItems = (parsedTx.length || 0) + (parsedInv.length || 0) + (parsedDiv.length || 0);
+      setHasLocalDataToMigrate(totalItems > 0);
     } catch {
-      return INITIAL_INVESTMENTS;
+      setHasLocalDataToMigrate(false);
     }
-  });
-
-  const [dividends, setDividends] = useState<DividendRecord[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.DIVIDENDS);
-      return saved ? JSON.parse(saved) : INITIAL_DIVIDENDS;
-    } catch {
-      return INITIAL_DIVIDENDS;
-    }
-  });
-
-  const [monthlyPerformances, setMonthlyPerformances] = useState<MonthlyPerformanceRecord[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.PERFORMANCE);
-      return saved ? JSON.parse(saved) : INITIAL_MONTHLY_PERFORMANCE;
-    } catch {
-      return INITIAL_MONTHLY_PERFORMANCE;
-    }
-  });
-
-  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.SELECTED_MONTH);
-      return saved || '2026-09';
-    } catch {
-      return '2026-09';
-    }
-  });
-
-  // Sync to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(transactions));
-    } catch (e) {
-      console.error('Error saving transactions', e);
-    }
-  }, [transactions]);
+  }, []);
 
   useEffect(() => {
+    checkLocalData();
+  }, [checkLocalData]);
+
+  // Load data from Supabase when user authenticates
+  const loadSupabaseData = useCallback(async (userId: string) => {
+    setIsLoadingData(true);
+    setSyncError(null);
+
     try {
-      localStorage.setItem(STORAGE_KEYS.INVESTMENTS, JSON.stringify(investments));
-    } catch (e) {
-      console.error('Error saving investments', e);
+      const data = await financeService.fetchUserData(userId);
+      setTransactions(data.transactions);
+      setInvestments(data.investments);
+      setDividends(data.dividends);
+      setMonthlyPerformances(data.monthlyPerformances);
+    } catch (err: any) {
+      console.error('Erro ao carregar dados do Supabase:', err);
+      setSyncError(err.message || 'Falha ao sincronizar dados com o Supabase.');
+
+      // If network/offline or Supabase not ready, load from local storage as graceful fallback
+      try {
+        const localTx = localStorage.getItem(LOCAL_STORAGE_KEYS.TRANSACTIONS);
+        const localInv = localStorage.getItem(LOCAL_STORAGE_KEYS.INVESTMENTS);
+        const localDiv = localStorage.getItem(LOCAL_STORAGE_KEYS.DIVIDENDS);
+        const localPerf = localStorage.getItem(LOCAL_STORAGE_KEYS.PERFORMANCE);
+
+        if (localTx) setTransactions(JSON.parse(localTx));
+        if (localInv) setInvestments(JSON.parse(localInv));
+        if (localDiv) setDividends(JSON.parse(localDiv));
+        if (localPerf) setMonthlyPerformances(JSON.parse(localPerf));
+      } catch (fallbackErr) {
+        console.warn('Fallback local storage load error:', fallbackErr);
+      }
+    } finally {
+      setIsLoadingData(false);
     }
-  }, [investments]);
+  }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.DIVIDENDS, JSON.stringify(dividends));
-    } catch (e) {
-      console.error('Error saving dividends', e);
+    if (isAuthenticated && currentUser?.id) {
+      loadSupabaseData(currentUser.id);
+    } else {
+      setTransactions([]);
+      setInvestments([]);
+      setDividends([]);
+      setMonthlyPerformances([]);
+      setIsLoadingData(false);
     }
-  }, [dividends]);
+  }, [isAuthenticated, currentUser?.id, loadSupabaseData]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.PERFORMANCE, JSON.stringify(monthlyPerformances));
-    } catch (e) {
-      console.error('Error saving performance', e);
+  const clearSyncError = () => setSyncError(null);
+
+  // --------------------------------------------------------------------------
+  // LOCAL TO SUPABASE MIGRATION ROUTINE
+  // --------------------------------------------------------------------------
+  const migrateLocalDataToCloud = async (): Promise<{ success: boolean; message: string }> => {
+    if (!currentUser?.id) {
+      return { success: false, message: 'Você precisa estar autenticado para migrar seus dados para a nuvem.' };
     }
-  }, [monthlyPerformances]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.SELECTED_MONTH, selectedMonth);
-    } catch (e) {
-      console.error('Error saving selectedMonth', e);
+    if (!isSupabaseConfigured) {
+      return { success: false, message: 'Configuração do Supabase não encontrada. Preencha as credenciais no arquivo .env.' };
     }
-  }, [selectedMonth]);
 
-  // Transaction Handlers
-  const addTransaction = (txData: Omit<Transaction, 'id'>) => {
+    setIsSaving(true);
+    setSyncError(null);
+
+    try {
+      const localTx = localStorage.getItem(LOCAL_STORAGE_KEYS.TRANSACTIONS);
+      const localInv = localStorage.getItem(LOCAL_STORAGE_KEYS.INVESTMENTS);
+      const localDiv = localStorage.getItem(LOCAL_STORAGE_KEYS.DIVIDENDS);
+      const localPerf = localStorage.getItem(LOCAL_STORAGE_KEYS.PERFORMANCE);
+
+      const parsedTx: Transaction[] = localTx ? JSON.parse(localTx) : [];
+      const parsedInv: InvestmentAsset[] = localInv ? JSON.parse(localInv) : [];
+      const parsedDiv: DividendRecord[] = localDiv ? JSON.parse(localDiv) : [];
+      const parsedPerf: MonthlyPerformanceRecord[] = localPerf ? JSON.parse(localPerf) : [];
+
+      const totalItems = parsedTx.length + parsedInv.length + parsedDiv.length + parsedPerf.length;
+
+      if (totalItems === 0) {
+        return { success: true, message: 'Nenhum dado local encontrado para migrar.' };
+      }
+
+      // Execute batch migration into Supabase PostgreSQL
+      const counts = await financeService.upsertDataBatch(currentUser.id, {
+        transactions: parsedTx,
+        investments: parsedInv,
+        dividends: parsedDiv,
+        monthlyPerformances: parsedPerf
+      });
+
+      // Reload fresh data from Supabase to confirm
+      await loadSupabaseData(currentUser.id);
+
+      // Mark migration as successful in localStorage without deleting raw data
+      localStorage.setItem(LOCAL_STORAGE_KEYS.MIGRATION_FLAG, 'true');
+      setIsMigratedToCloud(true);
+      setHasLocalDataToMigrate(false);
+
+      const summary = `Migração concluída com sucesso! ${counts.transactionsCount} transações, ${counts.investmentsCount} investimentos, ${counts.dividendsCount} proventos e ${counts.performancesCount} meses de desempenho foram salvos no Supabase.`;
+      return { success: true, message: summary };
+    } catch (err: any) {
+      console.error('Erro durante a migração para a nuvem:', err);
+      const errorMsg = err.message || 'Falha ao migrar dados para o Supabase.';
+      setSyncError(errorMsg);
+      return { success: false, message: errorMsg };
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // TRANSACTION ACTIONS
+  // --------------------------------------------------------------------------
+  const addTransaction = async (txData: Omit<Transaction, 'id'>) => {
     const newTx: Transaction = {
       ...txData,
-      id: `tx-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+      id: `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
     };
+
+    // Optimistic UI update
     setTransactions(prev => [newTx, ...prev]);
+
+    if (currentUser?.id && isSupabaseConfigured) {
+      setIsSaving(true);
+      try {
+        await financeService.insertTransaction(currentUser.id, newTx);
+      } catch (err: any) {
+        console.error('Erro ao salvar transação no Supabase:', err);
+        setSyncError(err.message);
+        // Rollback on error
+        setTransactions(prev => prev.filter(t => t.id !== newTx.id));
+      } finally {
+        setIsSaving(false);
+      }
+    }
   };
 
-  const updateTransaction = (updatedTx: Transaction) => {
-    setTransactions(prev => prev.map(tx => tx.id === updatedTx.id ? updatedTx : tx));
+  const updateTransaction = async (updatedTx: Transaction) => {
+    const previous = [...transactions];
+    setTransactions(prev => prev.map(t => t.id === updatedTx.id ? updatedTx : t));
+
+    if (currentUser?.id && isSupabaseConfigured) {
+      setIsSaving(true);
+      try {
+        await financeService.updateTransaction(currentUser.id, updatedTx);
+      } catch (err: any) {
+        console.error('Erro ao atualizar transação no Supabase:', err);
+        setSyncError(err.message);
+        setTransactions(previous);
+      } finally {
+        setIsSaving(false);
+      }
+    }
   };
 
-  const deleteTransaction = (id: string) => {
-    setTransactions(prev => prev.filter(tx => tx.id !== id));
+  const deleteTransaction = async (id: string) => {
+    const previous = [...transactions];
+    setTransactions(prev => prev.filter(t => t.id !== id));
+
+    if (currentUser?.id && isSupabaseConfigured) {
+      setIsSaving(true);
+      try {
+        await financeService.deleteTransaction(currentUser.id, id);
+      } catch (err: any) {
+        console.error('Erro ao excluir transação no Supabase:', err);
+        setSyncError(err.message);
+        setTransactions(previous);
+      } finally {
+        setIsSaving(false);
+      }
+    }
   };
 
-  // Investment Handlers
-  const addInvestment = (assetData: Omit<InvestmentAsset, 'id'>) => {
+  // --------------------------------------------------------------------------
+  // INVESTMENT ACTIONS
+  // --------------------------------------------------------------------------
+  const addInvestment = async (assetData: Omit<InvestmentAsset, 'id'>) => {
     const newAsset: InvestmentAsset = {
       ...assetData,
-      id: `inv-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+      id: `inv-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
     };
+
     setInvestments(prev => [...prev, newAsset]);
-  };
 
-  const updateInvestment = (updatedAsset: InvestmentAsset) => {
-    setInvestments(prev => prev.map(asset => asset.id === updatedAsset.id ? updatedAsset : asset));
-  };
-
-  const deleteInvestment = (id: string) => {
-    setInvestments(prev => prev.filter(asset => asset.id !== id));
-  };
-
-  const updateAssetPrice = (id: string, newPrice: number) => {
-    setInvestments(prev => prev.map(asset => {
-      if (asset.id === id) {
-        return { ...asset, currentPrice: newPrice };
+    if (currentUser?.id && isSupabaseConfigured) {
+      setIsSaving(true);
+      try {
+        await financeService.insertInvestment(currentUser.id, newAsset);
+      } catch (err: any) {
+        console.error('Erro ao salvar ativo no Supabase:', err);
+        setSyncError(err.message);
+        setInvestments(prev => prev.filter(a => a.id !== newAsset.id));
+      } finally {
+        setIsSaving(false);
       }
-      return asset;
-    }));
+    }
   };
 
-  // Dividend Handlers
-  const addDividend = (divData: Omit<DividendRecord, 'id'>) => {
+  const updateInvestment = async (updatedAsset: InvestmentAsset) => {
+    const previous = [...investments];
+    setInvestments(prev => prev.map(a => a.id === updatedAsset.id ? updatedAsset : a));
+
+    if (currentUser?.id && isSupabaseConfigured) {
+      setIsSaving(true);
+      try {
+        await financeService.updateInvestment(currentUser.id, updatedAsset);
+      } catch (err: any) {
+        console.error('Erro ao atualizar ativo no Supabase:', err);
+        setSyncError(err.message);
+        setInvestments(previous);
+      } finally {
+        setIsSaving(false);
+      }
+    }
+  };
+
+  const deleteInvestment = async (id: string) => {
+    const previous = [...investments];
+    setInvestments(prev => prev.filter(a => a.id !== id));
+
+    if (currentUser?.id && isSupabaseConfigured) {
+      setIsSaving(true);
+      try {
+        await financeService.deleteInvestment(currentUser.id, id);
+      } catch (err: any) {
+        console.error('Erro ao excluir ativo no Supabase:', err);
+        setSyncError(err.message);
+        setInvestments(previous);
+      } finally {
+        setIsSaving(false);
+      }
+    }
+  };
+
+  const updateAssetPrice = async (id: string, newPrice: number) => {
+    const previous = [...investments];
+    setInvestments(prev => prev.map(a => a.id === id ? { ...a, currentPrice: newPrice } : a));
+
+    if (currentUser?.id && isSupabaseConfigured) {
+      setIsSaving(true);
+      try {
+        await financeService.updateAssetPrice(currentUser.id, id, newPrice);
+      } catch (err: any) {
+        console.error('Erro ao atualizar cotação no Supabase:', err);
+        setSyncError(err.message);
+        setInvestments(previous);
+      } finally {
+        setIsSaving(false);
+      }
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // DIVIDEND ACTIONS
+  // --------------------------------------------------------------------------
+  const addDividend = async (divData: Omit<DividendRecord, 'id'>) => {
     const newDiv: DividendRecord = {
       ...divData,
-      id: `div-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
+      id: `div-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
     };
+
     setDividends(prev => [newDiv, ...prev]);
 
-    // Also optionally record a matching revenue transaction in the selected month for convenience
-    addTransaction({
+    if (currentUser?.id && isSupabaseConfigured) {
+      setIsSaving(true);
+      try {
+        await financeService.insertDividend(currentUser.id, newDiv);
+      } catch (err: any) {
+        console.error('Erro ao salvar dividendo no Supabase:', err);
+        setSyncError(err.message);
+        setDividends(prev => prev.filter(d => d.id !== newDiv.id));
+      } finally {
+        setIsSaving(false);
+      }
+    }
+
+    // Also record matching transaction
+    await addTransaction({
       description: `Provento Recebido: ${newDiv.ticker} (${newDiv.type.toUpperCase()})`,
       amount: newDiv.amount,
       type: 'receita',
@@ -234,34 +407,55 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   };
 
-  const deleteDividend = (id: string) => {
-    setDividends(prev => prev.filter(div => div.id !== id));
+  const deleteDividend = async (id: string) => {
+    const previous = [...dividends];
+    setDividends(prev => prev.filter(d => d.id !== id));
+
+    if (currentUser?.id && isSupabaseConfigured) {
+      setIsSaving(true);
+      try {
+        await financeService.deleteDividend(currentUser.id, id);
+      } catch (err: any) {
+        console.error('Erro ao excluir dividendo no Supabase:', err);
+        setSyncError(err.message);
+        setDividends(previous);
+      } finally {
+        setIsSaving(false);
+      }
+    }
   };
 
-  // Reset & Clear Database
-  const clearDatabase = () => {
+  // --------------------------------------------------------------------------
+  // DATABASE WIPE & BACKUP
+  // --------------------------------------------------------------------------
+  const clearDatabase = async () => {
     setTransactions([]);
     setInvestments([]);
     setDividends([]);
     setMonthlyPerformances([]);
     setSelectedMonth('2026-09');
-    try {
-      localStorage.removeItem(STORAGE_KEYS.TRANSACTIONS);
-      localStorage.removeItem(STORAGE_KEYS.INVESTMENTS);
-      localStorage.removeItem(STORAGE_KEYS.DIVIDENDS);
-      localStorage.removeItem(STORAGE_KEYS.PERFORMANCE);
-    } catch (e) {
-      console.error('Error clearing database storage', e);
+
+    if (currentUser?.id && isSupabaseConfigured) {
+      setIsSaving(true);
+      try {
+        await financeService.clearUserDatabase(currentUser.id);
+      } catch (err: any) {
+        console.error('Erro ao zerar banco no Supabase:', err);
+        setSyncError(err.message);
+      } finally {
+        setIsSaving(false);
+      }
     }
   };
 
-  const resetToDemoData = () => {
-    clearDatabase();
+  const resetToDemoData = async () => {
+    await clearDatabase();
   };
 
   const exportDataJSON = () => {
     const data = {
-      version: '2.0',
+      version: '3.0-supabase',
+      exportedBy: currentUser?.email || 'user',
       exportDate: new Date().toISOString(),
       transactions,
       investments,
@@ -277,23 +471,45 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     URL.revokeObjectURL(url);
   };
 
-  const importDataJSON = (jsonString: string): boolean => {
+  const importDataJSON = async (jsonString: string): Promise<boolean> => {
     try {
       const parsed = JSON.parse(jsonString);
-      if (Array.isArray(parsed.transactions) && Array.isArray(parsed.investments)) {
-        setTransactions(parsed.transactions);
-        setInvestments(parsed.investments);
-        if (Array.isArray(parsed.dividends)) setDividends(parsed.dividends);
-        if (Array.isArray(parsed.monthlyPerformances)) setMonthlyPerformances(parsed.monthlyPerformances);
-        return true;
+      if (!Array.isArray(parsed.transactions) && !Array.isArray(parsed.investments)) {
+        return false;
       }
+
+      const txList: Transaction[] = Array.isArray(parsed.transactions) ? parsed.transactions : [];
+      const invList: InvestmentAsset[] = Array.isArray(parsed.investments) ? parsed.investments : [];
+      const divList: DividendRecord[] = Array.isArray(parsed.dividends) ? parsed.dividends : [];
+      const perfList: MonthlyPerformanceRecord[] = Array.isArray(parsed.monthlyPerformances) ? parsed.monthlyPerformances : [];
+
+      setTransactions(txList);
+      setInvestments(invList);
+      setDividends(divList);
+      setMonthlyPerformances(perfList);
+
+      if (currentUser?.id && isSupabaseConfigured) {
+        setIsSaving(true);
+        await financeService.upsertDataBatch(currentUser.id, {
+          transactions: txList,
+          investments: invList,
+          dividends: divList,
+          monthlyPerformances: perfList
+        });
+      }
+
+      return true;
+    } catch (err) {
+      console.error('Erro ao importar JSON:', err);
       return false;
-    } catch {
-      return false;
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  // Calculate Metrics
+  // --------------------------------------------------------------------------
+  // CALCULATED FINANCIAL METRICS
+  // --------------------------------------------------------------------------
   const monthTransactions = transactions.filter(t => t.date.startsWith(selectedMonth));
   
   const monthIncome = monthTransactions
@@ -329,6 +545,13 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         monthlyPerformances,
         selectedMonth,
         setSelectedMonth,
+        isLoadingData,
+        isSaving,
+        syncError,
+        clearSyncError,
+        hasLocalDataToMigrate,
+        isMigratedToCloud,
+        migrateLocalDataToCloud,
         addTransaction,
         updateTransaction,
         deleteTransaction,

@@ -3,40 +3,55 @@ import {
   X, 
   Download, 
   Upload, 
-  RotateCcw, 
-  Database, 
+  Trash2, 
+  AlertTriangle, 
   CheckCircle2, 
-  Lock, 
-  LogOut, 
-  UserMinus, 
-  AlertTriangle 
+  Database,
+  Lock,
+  LogOut,
+  UserMinus,
+  Cloud,
+  CloudCheck,
+  RefreshCw,
+  Server
 } from 'lucide-react';
 import { useFinance } from '../context/FinanceContext';
 import { useAuth } from '../context/AuthContext';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({
-  isOpen,
-  onClose,
-}) => {
-  const { exportDataJSON, importDataJSON, resetToDemoData, clearDatabase } = useFinance();
-  const { currentUser, lockScreen, logout, deleteAccount } = useAuth();
-  
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [importStatus, setImportStatus] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isConfirmingReset, setIsConfirmingReset] = useState(false);
+export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+  const { 
+    clearDatabase, 
+    resetToDemoData, 
+    exportDataJSON, 
+    importDataJSON,
+    hasLocalDataToMigrate,
+    isMigratedToCloud,
+    migrateLocalDataToCloud,
+    isSaving,
+    syncError,
+    clearSyncError
+  } = useFinance();
 
-  // Account deletion state
+  const { currentUser, logout, lockScreen, deleteAccount } = useAuth();
+  
+  const [isConfirmingReset, setIsConfirmingReset] = useState(false);
   const [isConfirmingDeleteAccount, setIsConfirmingDeleteAccount] = useState(false);
   const [deletePassword, setDeletePassword] = useState('');
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [alsoWipeFinanceData, setAlsoWipeFinanceData] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [migrationStatus, setMigrationStatus] = useState<string | null>(null);
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
@@ -44,18 +59,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setErrorMessage(null);
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const content = event.target?.result as string;
       if (content) {
-        const success = importDataJSON(content);
+        const success = await importDataJSON(content);
         if (success) {
-          setImportStatus('Dados importados com sucesso!');
+          setImportStatus('Dados importados com sucesso para o banco de dados online!');
           setTimeout(() => {
             setImportStatus(null);
             onClose();
-          }, 1200);
+          }, 1500);
         } else {
           setErrorMessage('Erro ao importar arquivo. Certifique-se de que o formato JSON é válido.');
         }
@@ -64,10 +78,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     reader.readAsText(file);
   };
 
-  const handleConfirmReset = () => {
-    resetToDemoData();
+  const handleConfirmReset = async () => {
+    await resetToDemoData();
     setIsConfirmingReset(false);
     onClose();
+  };
+
+  const handleMigrate = async () => {
+    setMigrationStatus(null);
+    setErrorMessage(null);
+    setIsMigrating(true);
+    try {
+      const res = await migrateLocalDataToCloud();
+      if (res.success) {
+        setMigrationStatus(res.message);
+      } else {
+        setErrorMessage(res.message);
+      }
+    } finally {
+      setIsMigrating(false);
+    }
   };
 
   const handleDeleteAccountSubmit = async (e: React.FormEvent) => {
@@ -81,14 +111,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
     setIsDeleting(true);
     try {
+      if (alsoWipeFinanceData) {
+        await clearDatabase();
+      }
+
       const res = await deleteAccount(deletePassword);
       if (!res.success) {
         setDeleteError(res.error || 'Não foi possível excluir a conta.');
         return;
-      }
-
-      if (alsoWipeFinanceData) {
-        clearDatabase();
       }
 
       setIsConfirmingDeleteAccount(false);
@@ -106,7 +136,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <Database className="w-5 h-5 text-indigo-600" />
-            <h2 className="text-base font-bold text-slate-900">Configurações & Backup</h2>
+            <h2 className="text-base font-bold text-slate-900">Configurações & Nuvem</h2>
           </div>
           <button
             onClick={onClose}
@@ -117,6 +147,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <div className="p-6 space-y-4 max-h-[85vh] overflow-y-auto">
+
+          {/* Cloud Connection Status Card */}
+          <div className="p-3.5 bg-gradient-to-br from-slate-50 to-indigo-50/40 border border-slate-200/90 rounded-2xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${isSupabaseConfigured ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-white'}`}>
+                  <Server className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-slate-900">Banco de Dados</span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      isSupabaseConfigured 
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300/60' 
+                        : 'bg-amber-100 text-amber-800 border border-amber-300/60'
+                    }`}>
+                      {isSupabaseConfigured ? 'Supabase PostgreSQL Online' : 'Pendente Configuração .env'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    {isSupabaseConfigured 
+                      ? 'Sincronização em tempo real entre computador e celular'
+                      : 'Adicione VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no arquivo .env'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
           
           {/* Account Profile Card */}
           {currentUser && (
@@ -138,10 +196,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       onClose();
                       lockScreen();
                     }}
-                    className="p-1.5 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors border border-slate-200 cursor-pointer"
-                    title="Bloquear Tela"
+                    className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                    title="Bloquear tela (pedir senha)"
                   >
-                    <Lock className="w-3.5 h-3.5" />
+                    <Lock className="w-4 h-4" />
                   </button>
                   <button
                     type="button"
@@ -149,52 +207,43 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       onClose();
                       logout();
                     }}
-                    className="p-1.5 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-slate-200 cursor-pointer"
-                    title="Sair da Conta"
+                    className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                    title="Sair da conta"
                   >
-                    <LogOut className="w-3.5 h-3.5" />
+                    <LogOut className="w-4 h-4" />
                   </button>
                 </div>
               </div>
 
-              {/* Account actions: delete option */}
-              <div className="mt-3 pt-2.5 border-t border-slate-200/70 flex items-center justify-between">
-                <span className="text-[11px] text-slate-500">Sessão criptografada (SHA-256)</span>
+              {/* Account Deletion trigger */}
+              <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex items-center justify-between">
+                <span className="text-[11px] text-slate-500">Privacidade e conta</span>
                 <button
                   type="button"
-                  id="btn-open-delete-account"
-                  onClick={() => {
-                    setIsConfirmingDeleteAccount(!isConfirmingDeleteAccount);
-                    setDeleteError(null);
-                    setDeletePassword('');
-                  }}
-                  className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 flex items-center gap-1 cursor-pointer transition-colors"
+                  id="btn-trigger-delete-account"
+                  onClick={() => setIsConfirmingDeleteAccount(!isConfirmingDeleteAccount)}
+                  className="text-[11px] font-semibold text-rose-600 hover:text-rose-800 transition-colors cursor-pointer flex items-center gap-1"
                 >
-                  <UserMinus className="w-3.5 h-3.5" />
-                  <span>Excluir Conta</span>
+                  <UserMinus className="w-3 h-3" />
+                  <span>Excluir Minha Conta</span>
                 </button>
               </div>
             </div>
           )}
 
-          {/* Delete Account Dialog */}
-          {isConfirmingDeleteAccount && currentUser && (
-            <form 
-              onSubmit={handleDeleteAccountSubmit}
-              className="p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-3 animate-in fade-in duration-150"
-            >
-              <div className="flex items-start gap-2.5">
-                <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-                <div>
-                  <h4 className="text-xs font-bold text-rose-900">Excluir Conta Permanentemente</h4>
-                  <p className="text-[11px] text-rose-700 mt-0.5">
-                    Esta ação removerá o usuário <strong>{currentUser.email}</strong>. Para confirmar, digite sua senha atual:
-                  </p>
-                </div>
+          {/* Delete Account confirmation form */}
+          {isConfirmingDeleteAccount && (
+            <form onSubmit={handleDeleteAccountSubmit} className="p-4 bg-rose-50/80 border border-rose-200 rounded-2xl space-y-3 animate-in fade-in duration-150">
+              <div className="flex items-center gap-2 text-rose-800 font-bold text-xs">
+                <AlertTriangle className="w-4 h-4 text-rose-600" />
+                <span>Excluir Permanentemente a Conta</span>
               </div>
+              <p className="text-[11px] text-rose-700 leading-relaxed">
+                Esta ação apagará seu perfil e suas credenciais do banco de dados na nuvem.
+              </p>
 
               {deleteError && (
-                <div className="p-2 bg-rose-100 border border-rose-300 text-rose-800 rounded-xl text-xs font-medium">
+                <div className="p-2 bg-white border border-rose-200 text-rose-700 rounded-xl text-xs">
                   {deleteError}
                 </div>
               )}
@@ -207,7 +256,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   required
                   value={deletePassword}
                   onChange={(e) => setDeletePassword(e.target.value)}
-                  placeholder="Digite sua senha de acesso"
+                  placeholder="Digite sua senha do Supabase"
                   className="w-full px-3 py-2 bg-white border border-rose-300 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-rose-500/20 font-mono"
                 />
               </div>
@@ -219,7 +268,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   onChange={(e) => setAlsoWipeFinanceData(e.target.checked)}
                   className="rounded-md border-rose-300 text-rose-600 focus:ring-rose-500/20 w-3.5 h-3.5"
                 />
-                <span>Zerar também todos os lançamentos financeiros deste navegador</span>
+                <span>Zerar também todos os meus lançamentos e ativos no banco de dados</span>
               </label>
 
               <div className="flex items-center gap-2 pt-1">
@@ -248,6 +297,56 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </form>
           )}
 
+          {/* Local-to-Cloud Migration Section */}
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                <Cloud className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Migração do Armazenamento Local</span>
+              </h4>
+              {isMigratedToCloud && (
+                <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" />
+                  Migrado
+                </span>
+              )}
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {hasLocalDataToMigrate 
+                ? 'Identificamos dados gravados anteriormente no navegador (localStorage). Clique abaixo para enviá-los ao Supabase PostgreSQL.' 
+                : isMigratedToCloud 
+                  ? 'Seus dados já foram migrados para o Supabase. Caso tenha dados locais residuais, você pode sincronizar novamente.' 
+                  : 'Sincronize quaisquer dados do seu navegador para sua conta na nuvem.'}
+            </p>
+
+            <button
+              id="btn-migrate-local-data"
+              onClick={handleMigrate}
+              disabled={isMigrating || !isSupabaseConfigured}
+              className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold py-2.5 px-4 rounded-xl transition-colors shadow-xs cursor-pointer"
+            >
+              {isMigrating ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Migrando dados para o Supabase...</span>
+                </>
+              ) : (
+                <>
+                  <CloudCheck className="w-4 h-4" />
+                  <span>Migrar Dados Locais para o Supabase</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {migrationStatus && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2 font-medium">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{migrationStatus}</span>
+            </div>
+          )}
+
           {importStatus && (
             <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2 font-medium">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -257,8 +356,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {errorMessage && (
             <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs flex items-center gap-2 font-medium">
-              <X className="w-4 h-4 text-rose-600" />
+              <X className="w-4 h-4 text-rose-600 shrink-0" />
               <span>{errorMessage}</span>
+            </div>
+          )}
+
+          {syncError && (
+            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs flex items-center justify-between gap-2 font-medium">
+              <span>{syncError}</span>
+              <button 
+                type="button" 
+                onClick={clearSyncError}
+                className="text-rose-600 hover:text-rose-900 text-[11px] underline"
+              >
+                Dispensar
+              </button>
             </div>
           )}
 
@@ -267,8 +379,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
               Backup e Exportação
             </h4>
-            <p className="text-xs text-slate-700">
-              Exporte todos os seus lançamentos financeiros, carteira de investimentos e relatórios para um arquivo JSON seguro em seu computador.
+            <p className="text-xs text-slate-600">
+              Exporte todos os seus lançamentos, carteira e histórico do Supabase para um arquivo JSON em seu computador.
             </p>
             <div className="flex items-center gap-2 pt-1">
               <button
@@ -289,8 +401,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
               Restaurar Backup
             </h4>
-            <p className="text-xs text-slate-700">
-              Carregue um arquivo JSON de backup previamente exportado para recuperar seus dados.
+            <p className="text-xs text-slate-600">
+              Carregue um arquivo JSON de backup para sincronizar os dados na sua conta online do Supabase.
             </p>
             <input
               type="file"
@@ -299,66 +411,76 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               onChange={handleFileChange}
               className="hidden"
             />
-            <button
-              id="btn-import-backup"
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold py-2.5 px-4 rounded-xl transition-colors cursor-pointer"
-            >
-              <Upload className="w-4 h-4 text-indigo-600" />
-              <span>Importar Arquivo JSON</span>
-            </button>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                id="btn-import-backup"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isSaving}
+                className="w-full flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold py-2.5 px-4 rounded-xl border border-slate-300 transition-colors shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                <Upload className="w-4 h-4 text-slate-600" />
+                <span>{isSaving ? 'Importando...' : 'Restaurar do Arquivo (JSON)'}</span>
+              </button>
+            </div>
           </div>
 
           <div className="h-px bg-slate-100 my-2" />
 
-          {/* Reset All Data */}
+          {/* Reset Section */}
           <div className="space-y-2">
-            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider text-rose-600">
-              Zerar Banco de Dados
+            <h4 className="text-xs font-bold text-rose-800 uppercase tracking-wider">
+              Zerar Dados Financeiros
             </h4>
-            <p className="text-xs text-slate-700">
-              Limpa permanentemente todos os lançamentos financeiros, investimentos e proventos cadastrados no navegador.
+            <p className="text-xs text-slate-600">
+              Remove todas as transações, investimentos e proventos vinculados à sua conta no banco de dados.
             </p>
-
-            {isConfirmingReset ? (
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl space-y-2">
-                <p className="text-xs font-semibold text-rose-800">
-                  Deseja realmente zerar todo o banco de dados? Esta ação apagará todas as transações e ativos.
+            
+            {!isConfirmingReset ? (
+              <button
+                id="btn-open-confirm-reset"
+                onClick={() => setIsConfirmingReset(true)}
+                className="w-full flex items-center justify-center gap-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold py-2.5 px-4 rounded-xl border border-rose-200 transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Zerar Todos os Dados</span>
+              </button>
+            ) : (
+              <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl space-y-3">
+                <div className="flex items-center gap-2 text-rose-800 font-bold text-xs">
+                  <AlertTriangle className="w-4 h-4 text-rose-600" />
+                  <span>Confirmação Necessária</span>
+                </div>
+                <p className="text-xs text-rose-700">
+                  Tem certeza que deseja apagar todos os lançamentos do banco? Essa ação não pode ser desfeita.
                 </p>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 pt-1">
                   <button
                     onClick={() => setIsConfirmingReset(false)}
-                    className="flex-1 px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-lg cursor-pointer"
+                    className="flex-1 py-1.5 px-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
                   >
                     Cancelar
                   </button>
                   <button
-                    id="btn-confirm-clear-db"
+                    id="btn-confirm-reset"
                     onClick={handleConfirmReset}
-                    className="flex-1 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-xs cursor-pointer"
+                    className="flex-1 py-1.5 px-3 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-xs"
                   >
-                    Confirmar Limpeza Total
+                    Sim, Zerar Dados
                   </button>
                 </div>
               </div>
-            ) : (
-              <button
-                id="btn-open-clear-db"
-                onClick={() => setIsConfirmingReset(true)}
-                className="w-full flex items-center justify-center gap-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold py-2.5 px-4 rounded-xl transition-colors cursor-pointer"
-              >
-                <RotateCcw className="w-4 h-4" />
-                <span>Zerar Banco de Dados (Limpar Tudo)</span>
-              </button>
             )}
           </div>
 
-          <div className="pt-2 text-center">
-            <span className="text-[11px] text-slate-700">
-              FinanControl Pro v1.0 • Armazenamento local seguro e privacidade garantida
-            </span>
-          </div>
+        </div>
 
+        <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+          >
+            Fechar
+          </button>
         </div>
 
       </div>
