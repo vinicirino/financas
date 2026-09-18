@@ -7,8 +7,8 @@ import { OverviewTab } from './components/OverviewTab';
 import { TransactionsTab } from './components/TransactionsTab';
 import { InvestmentsTab } from './components/InvestmentsTab';
 import { ProfitabilityReportTab } from './components/ProfitabilityReportTab';
-import { TransactionModal } from './components/TransactionModal';
-import { InvestmentModal } from './components/InvestmentModal';
+import { TransactionModal, TransactionPreset } from './components/TransactionModal';
+import { InvestmentModal, InvestmentPreset } from './components/InvestmentModal';
 import { DividendModal } from './components/DividendModal';
 import { SettingsModal } from './components/SettingsModal';
 import { Transaction, InvestmentAsset } from './types';
@@ -19,9 +19,11 @@ function MainLayout() {
   // Modal states
   const [isTransactionModalOpen, setIsTransactionModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [transactionPreset, setTransactionPreset] = useState<TransactionPreset | null>(null);
 
   const [isInvestmentModalOpen, setIsInvestmentModalOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState<InvestmentAsset | null>(null);
+  const [investmentPreset, setInvestmentPreset] = useState<InvestmentPreset | null>(null);
 
   const [isDividendModalOpen, setIsDividendModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -32,35 +34,92 @@ function MainLayout() {
     updateTransaction, 
     addInvestment, 
     updateInvestment,
-    addDividend 
+    addDividend,
+    investments
   } = useFinance();
 
   // Handlers
   const handleOpenNewTransaction = () => {
     setEditingTransaction(null);
+    setTransactionPreset(null);
+    setIsTransactionModalOpen(true);
+  };
+
+  const handleApplySavings = (amount: number) => {
+    setEditingTransaction(null);
+    setTransactionPreset({
+      type: 'despesa',
+      category: 'Investimentos & Poupança',
+      description: 'Aplicação Poupança / Reserva',
+      amount: amount > 0 ? amount : '',
+      isSavings: true
+    });
     setIsTransactionModalOpen(true);
   };
 
   const handleEditTransaction = (tx: Transaction) => {
     setEditingTransaction(tx);
+    setTransactionPreset(null);
     setIsTransactionModalOpen(true);
   };
 
-  const handleSaveTransaction = (txData: any) => {
-    if (txData.id) {
-      updateTransaction(txData as Transaction);
+  const handleSaveTransaction = async (txData: any) => {
+    const { syncWithInvestments, savingsName, savingsBroker, ...cleanTx } = txData;
+    if (cleanTx.id) {
+      await updateTransaction(cleanTx as Transaction);
     } else {
-      addTransaction(txData);
+      await addTransaction(cleanTx);
+      // If user enabled automatic sync to investment assets
+      if (syncWithInvestments) {
+        const targetTicker = 'POUPANCA';
+        const existing = investments.find(
+          inv => inv.ticker.toUpperCase() === targetTicker || 
+                 inv.name.toLowerCase().includes('poupança') ||
+                 inv.name.toLowerCase() === (savingsName || '').toLowerCase()
+        );
+        if (existing) {
+          await updateInvestment({
+            ...existing,
+            currentPrice: existing.currentPrice + cleanTx.amount,
+            averagePrice: existing.averagePrice + cleanTx.amount,
+          });
+        } else {
+          await addInvestment({
+            ticker: targetTicker,
+            name: savingsName || 'Conta Poupança / Reserva',
+            assetClass: 'renda_fixa',
+            quantity: 1,
+            averagePrice: cleanTx.amount,
+            currentPrice: cleanTx.amount,
+            purchaseDate: cleanTx.date,
+            broker: savingsBroker || 'Banco',
+            targetAllocationPercent: 15,
+          });
+        }
+      }
     }
   };
 
   const handleOpenNewInvestment = () => {
     setEditingAsset(null);
+    setInvestmentPreset(null);
+    setIsInvestmentModalOpen(true);
+  };
+
+  const handleOpenAddSavingsAsset = () => {
+    setEditingAsset(null);
+    setInvestmentPreset({
+      isSavings: true,
+      ticker: 'POUPANCA',
+      name: 'Conta Poupança',
+      broker: 'Caixa Econômica',
+    });
     setIsInvestmentModalOpen(true);
   };
 
   const handleEditAsset = (asset: InvestmentAsset) => {
     setEditingAsset(asset);
+    setInvestmentPreset(null);
     setIsInvestmentModalOpen(true);
   };
 
@@ -95,6 +154,7 @@ function MainLayout() {
             onNavigateToTab={setActiveTab}
             onOpenTransactionModal={handleOpenNewTransaction}
             onOpenInvestmentModal={handleOpenNewInvestment}
+            onApplySavings={handleApplySavings}
           />
         )}
 
@@ -108,6 +168,7 @@ function MainLayout() {
         {activeTab === 'investments' && (
           <InvestmentsTab
             onOpenAddAssetModal={handleOpenNewInvestment}
+            onOpenAddSavingsModal={handleOpenAddSavingsAsset}
             onEditAsset={handleEditAsset}
             onOpenDividendModal={() => setIsDividendModalOpen(true)}
           />
@@ -127,14 +188,14 @@ function MainLayout() {
           <div className="flex items-center gap-4">
             <button
               onClick={() => setIsSettingsModalOpen(true)}
-              className="hover:text-slate-900 transition-colors"
+              className="hover:text-slate-900 transition-colors cursor-pointer"
             >
               Backup & Configurações
             </button>
             <span>•</span>
             <button
               onClick={() => setActiveTab('profitability')}
-              className="hover:text-slate-900 transition-colors"
+              className="hover:text-slate-900 transition-colors cursor-pointer"
             >
               Relatório de Rentabilidade
             </button>
@@ -148,10 +209,12 @@ function MainLayout() {
         onClose={() => {
           setIsTransactionModalOpen(false);
           setEditingTransaction(null);
+          setTransactionPreset(null);
         }}
         onSave={handleSaveTransaction}
         transactionToEdit={editingTransaction}
         defaultMonth={selectedMonth}
+        initialPreset={transactionPreset}
       />
 
       <InvestmentModal
@@ -159,9 +222,11 @@ function MainLayout() {
         onClose={() => {
           setIsInvestmentModalOpen(false);
           setEditingAsset(null);
+          setInvestmentPreset(null);
         }}
         onSave={handleSaveInvestment}
         assetToEdit={editingAsset}
+        initialPreset={investmentPreset}
       />
 
       <DividendModal

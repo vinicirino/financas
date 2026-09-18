@@ -82,6 +82,7 @@ export const PAYMENT_METHOD_LABELS: Record<string, string> = {
 export const DEFAULT_INCOME_CATEGORIES = [
   'Salário',
   'Rendimentos / Investimentos',
+  'Resgate de Poupança / Investimento',
   'Freelance / Serviços',
   'Bônus / PLR',
   'Vendas',
@@ -90,6 +91,9 @@ export const DEFAULT_INCOME_CATEGORIES = [
 ];
 
 export const DEFAULT_EXPENSE_CATEGORIES = [
+  'Dízimos & Ofertas',
+  'Investimentos & Poupança',
+  'Reserva de Emergência',
   'Moradia & Aluguel',
   'Alimentação & Supermercado',
   'Transporte & Combustível',
@@ -99,5 +103,6 @@ export const DEFAULT_EXPENSE_CATEGORIES = [
   'Contas de Consumo (Luz/Água/Net)',
   'Assinaturas & Streaming',
   'Compras & Vestuário',
+  'Doações & Caridade',
   'Outras Despesas'
 ];

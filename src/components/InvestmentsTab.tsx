@@ -13,7 +13,8 @@ import {
   Target,
   ArrowUpRight,
   ArrowDownRight,
-  ShieldCheck
+  ShieldCheck,
+  PiggyBank
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import { useFinance } from '../context/FinanceContext';
@@ -28,12 +29,14 @@ import {
 
 interface InvestmentsTabProps {
   onOpenAddAssetModal: () => void;
+  onOpenAddSavingsModal?: () => void;
   onEditAsset: (asset: InvestmentAsset) => void;
   onOpenDividendModal: () => void;
 }
 
 export const InvestmentsTab: React.FC<InvestmentsTabProps> = ({
   onOpenAddAssetModal,
+  onOpenAddSavingsModal,
   onEditAsset,
   onOpenDividendModal,
 }) => {
@@ -171,10 +174,21 @@ export const InvestmentsTab: React.FC<InvestmentsTabProps> = ({
             <p className="text-xs text-slate-700">Distribuição patrimonial entre classes de investimento</p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {onOpenAddSavingsModal && (
+              <button
+                type="button"
+                onClick={onOpenAddSavingsModal}
+                className="flex items-center gap-1.5 bg-teal-600 hover:bg-teal-700 active:bg-teal-800 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors shadow-xs cursor-pointer"
+              >
+                <PiggyBank className="w-4 h-4" />
+                <span>+ Poupança / Reserva</span>
+              </button>
+            )}
+
             <button
               onClick={onOpenDividendModal}
-              className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors shadow-xs"
+              className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors shadow-xs cursor-pointer"
             >
               <Coins className="w-4 h-4" />
               <span>Registrar Provento</span>
@@ -183,7 +197,7 @@ export const InvestmentsTab: React.FC<InvestmentsTabProps> = ({
             <button
               id="btn-add-asset-modal"
               onClick={onOpenAddAssetModal}
-              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-semibold px-3.5 py-2 rounded-xl transition-colors shadow-xs"
+              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-semibold px-3.5 py-2 rounded-xl transition-colors shadow-xs cursor-pointer"
             >
               <PlusCircle className="w-4 h-4" />
               <span>Novo Ativo</span>

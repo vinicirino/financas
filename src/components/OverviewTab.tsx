@@ -38,6 +38,7 @@ interface OverviewTabProps {
   onNavigateToTab: (tab: string) => void;
   onOpenTransactionModal: () => void;
   onOpenInvestmentModal: () => void;
+  onApplySavings?: (amount: number) => void;
 }
 
 const CATEGORY_COLORS = [
@@ -49,6 +50,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   onNavigateToTab,
   onOpenTransactionModal,
   onOpenInvestmentModal,
+  onApplySavings,
 }) => {
   const { transactions, investments, selectedMonth, metrics, monthlyPerformances } = useFinance();
 
@@ -198,24 +200,38 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </div>
 
         {/* Saldo Líquido & Taxa de Poupança */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs hover:border-slate-300 transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Saldo Líquido</span>
-            <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
-              <PiggyBank className="w-4 h-4" />
+        <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs hover:border-slate-300 transition-all flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Saldo Líquido</span>
+              <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center">
+                <PiggyBank className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <h2 className={`text-2xl font-bold font-mono tracking-tight ${metrics.monthBalance >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
+                {formatCurrency(metrics.monthBalance)}
+              </h2>
+              <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-700">
+                <span className="font-semibold text-emerald-700">
+                  {metrics.monthSavingsRate.toFixed(1)}% poupado
+                </span>
+                <span>da renda total</span>
+              </div>
             </div>
           </div>
-          <div className="mt-3">
-            <h2 className={`text-2xl font-bold font-mono tracking-tight ${metrics.monthBalance >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
-              {formatCurrency(metrics.monthBalance)}
-            </h2>
-            <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-700">
-              <span className="font-semibold text-emerald-700">
-                {metrics.monthSavingsRate.toFixed(1)}% poupado
-              </span>
-              <span>da renda total</span>
-            </div>
-          </div>
+
+          {onApplySavings && metrics.monthBalance > 0 && (
+            <button
+              type="button"
+              onClick={() => onApplySavings(metrics.monthBalance)}
+              className="mt-3 w-full py-1.5 px-2.5 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-800 border border-emerald-200/80 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              title="Transferir / aplicar este saldo na poupança"
+            >
+              <PiggyBank className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Guardar Saldo na Poupança</span>
+            </button>
+          )}
         </div>
 
         {/* Carteira de Investimentos */}
