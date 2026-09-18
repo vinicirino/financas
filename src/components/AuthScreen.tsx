@@ -189,7 +189,7 @@ export const AuthScreen: React.FC = () => {
           </form>
 
           <div className="mt-6 pt-4 border-t border-slate-700/60 flex items-center justify-between text-xs text-slate-400">
-            <span>Não é {currentUser.name.split(' ')[0]}?</span>
+            <span>Não é {(currentUser.name || 'Usuário').split(' ')[0]}?</span>
             <button
               type="button"
               onClick={logout}

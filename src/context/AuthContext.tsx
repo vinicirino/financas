@@ -43,24 +43,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const { data: profile } = await supabase
+      const { data: profile, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', supabaseUser.id)
         .maybeSingle();
 
-      const userName = profile?.name || 
+      if (error) {
+        console.warn('Aviso ao consultar perfil:', error.message);
+      }
+
+      const rawName = profile?.name || 
         supabaseUser.user_metadata?.name || 
         (supabaseUser.email ? supabaseUser.email.split('@')[0] : 'Usuário');
+      const userName = String(rawName || 'Usuário');
 
-      // If profile doesn't exist yet, insert it
+      // If profile doesn't exist yet, insert it in background
       if (!profile && isSupabaseConfigured) {
-        await supabase.from('profiles').upsert({
-          id: supabaseUser.id,
-          name: userName,
-          email: supabaseUser.email || '',
-          updated_at: new Date().toISOString()
-        });
+        try {
+          await supabase.from('profiles').upsert({
+            id: supabaseUser.id,
+            name: userName,
+            email: supabaseUser.email || '',
+            updated_at: new Date().toISOString()
+          });
+        } catch {
+          // ignore profile creation warning
+        }
       }
 
       setCurrentUser({
@@ -72,17 +81,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         lastLoginAt: new Date().toISOString()
       });
     } catch (e) {
-      console.warn('Erro ao carregar perfil do Supabase, usando dados da sessão', e);
+      console.warn('Erro ao carregar perfil do Supabase, usando dados da sessão:', e);
+      const fallbackName = String(
+        supabaseUser.user_metadata?.name || 
+        (supabaseUser.email ? supabaseUser.email.split('@')[0] : 'Usuário') || 
+        'Usuário'
+      );
       setCurrentUser({
         id: supabaseUser.id,
-        name: supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'Usuário',
+        name: fallbackName,
         email: supabaseUser.email || '',
         createdAt: supabaseUser.created_at || new Date().toISOString()
       });
     }
   };
 
-  // 1. Initialize Supabase Auth state listener
+  // 1. Initialize Supabase Auth state listener with timeout fallback
   useEffect(() => {
     let isMounted = true;
 
@@ -91,41 +105,66 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    // Get current session
-    supabase.auth.getSession().then(async ({ data: { session }, error }) => {
-      if (!isMounted) return;
-      if (error) {
-        console.error('Erro ao recuperar sessão do Supabase:', error);
+    // Safety timeout: Never leave screen blocked loading for more than 3 seconds
+    const safetyTimeout = setTimeout(() => {
+      if (isMounted) {
+        setIsAuthLoading(false);
       }
-      if (session?.user) {
-        await loadUserProfile(session.user);
-      } else {
-        setCurrentUser(null);
+    }, 3000);
+
+    const initAuthSession = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (!isMounted) return;
+        if (error) {
+          console.warn('Aviso ao recuperar sessão:', error.message);
+        }
+        if (data?.session?.user) {
+          await loadUserProfile(data.session.user);
+        } else {
+          setCurrentUser(null);
+        }
+      } catch (err) {
+        console.warn('Falha na inicialização do auth:', err);
+      } finally {
+        if (isMounted) {
+          clearTimeout(safetyTimeout);
+          setIsAuthLoading(false);
+        }
       }
-      setIsAuthLoading(false);
-    });
+    };
+
+    initAuthSession();
 
     // Listen to auth events (login, logout, token refresh)
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-        if (session?.user) {
-          await loadUserProfile(session.user);
+      try {
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+          if (session?.user) {
+            await loadUserProfile(session.user);
+          }
+        } else if (event === 'SIGNED_OUT') {
+          setCurrentUser(null);
+          setIsLocked(false);
+          try {
+            sessionStorage.removeItem(STORAGE_KEYS.IS_LOCKED);
+          } catch {
+            // ignore
+          }
         }
-      } else if (event === 'SIGNED_OUT') {
-        setCurrentUser(null);
-        setIsLocked(false);
-        try {
-          sessionStorage.removeItem(STORAGE_KEYS.IS_LOCKED);
-        } catch {
-          // ignore
+      } catch (err) {
+        console.warn('Erro ao tratar evento de auth:', err);
+      } finally {
+        if (isMounted) {
+          setIsAuthLoading(false);
         }
       }
-      setIsAuthLoading(false);
     });
 
     return () => {
       isMounted = false;
+      clearTimeout(safetyTimeout);
       authListener?.subscription?.unsubscribe();
     };
   }, []);

@@ -207,13 +207,13 @@ export const Header: React.FC<HeaderProps> = ({
                     type="button"
                     onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
                     className="flex items-center gap-2 pl-2 pr-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200/80 border border-slate-200/80 transition-colors cursor-pointer"
-                    title={`Conectado como ${currentUser.name}`}
+                    title={`Conectado como ${currentUser.name || 'Usuário'}`}
                   >
                     <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-indigo-600 to-emerald-600 text-white flex items-center justify-center text-xs font-bold uppercase shadow-xs">
                       {currentUser.name ? currentUser.name.charAt(0) : 'U'}
                     </div>
                     <span className="text-xs font-medium text-slate-700 hidden sm:inline max-w-[100px] truncate">
-                      {currentUser.name.split(' ')[0]}
+                      {(currentUser.name || 'Usuário').split(' ')[0]}
                     </span>
                   </button>
 
