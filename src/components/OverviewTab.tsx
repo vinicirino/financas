@@ -46,6 +46,81 @@ const CATEGORY_COLORS = [
   '#6366f1', '#14b8a6', '#f97316', '#64748b', '#84cc16'
 ];
 
+// Helper to determine if an expense represents an application/savings/reserve
+function isSavingsExpense(t: { type: string; category?: string; description?: string }): boolean {
+  if (t.type !== 'despesa') return false;
+  const cat = (t.category || '').toLowerCase();
+  const desc = (t.description || '').toLowerCase();
+  return (
+    cat.includes('poupança') ||
+    cat.includes('reserva') ||
+    cat.includes('investimento') ||
+    desc.includes('poupança') ||
+    desc.includes('caixinha') ||
+    desc.includes('reserva de emergência') ||
+    desc.includes('aplicação poupança')
+  );
+}
+
+// Custom Tooltip for Cashflow chart with detailed breakdown
+const CashflowTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    const rawData = payload[0]?.payload;
+    if (!rawData) return null;
+
+    const receitas = rawData.Receitas ?? 0;
+    const despesasCorrentes = rawData['Despesas Correntes'] ?? 0;
+    const despesasReserva = rawData['Poupança & Reserva'] ?? 0;
+    const totalDespesas = rawData.TotalDespesas ?? (despesasCorrentes + despesasReserva);
+    const saldo = rawData.Saldo ?? (receitas - totalDespesas);
+
+    return (
+      <div className="bg-slate-900/95 backdrop-blur-xs text-white p-3 rounded-xl shadow-xl text-xs space-y-2 border border-slate-700/80 min-w-[220px]">
+        <div className="flex items-center justify-between border-b border-slate-700/80 pb-1.5">
+          <span className="font-bold text-slate-200">{label}</span>
+          <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${saldo >= 0 ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/60' : 'bg-rose-950 text-rose-300 border border-rose-800/60'}`}>
+            Saldo: {formatCurrency(saldo)}
+          </span>
+        </div>
+
+        <div className="space-y-1.5 pt-0.5">
+          <div className="flex items-center justify-between text-emerald-400">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
+              Receitas:
+            </span>
+            <span className="font-semibold">{formatCurrency(receitas)}</span>
+          </div>
+
+          <div className="flex items-center justify-between text-rose-400">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" />
+              Despesas Correntes:
+            </span>
+            <span className="font-semibold">{formatCurrency(despesasCorrentes)}</span>
+          </div>
+
+          {despesasReserva > 0 && (
+            <div className="flex items-center justify-between text-sky-400">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-sky-500 inline-block" />
+                Poupança & Reserva:
+              </span>
+              <span className="font-semibold">{formatCurrency(despesasReserva)}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-slate-800 pt-1.5 flex items-center justify-between text-slate-400 text-[11px]">
+          <span>Total de Saídas:</span>
+          <span className="font-bold text-white">{formatCurrency(totalDespesas)}</span>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
+
 export const OverviewTab: React.FC<OverviewTabProps> = ({
   onNavigateToTab,
   onOpenTransactionModal,
@@ -70,12 +145,17 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
     const totalExpenseAmount = Object.values(categoryTotals).reduce((a, b) => a + b, 0);
 
     return Object.entries(categoryTotals)
-      .map(([name, value], index) => ({
-        name,
-        value,
-        percentage: totalExpenseAmount > 0 ? (value / totalExpenseAmount) * 100 : 0,
-        color: CATEGORY_COLORS[index % CATEGORY_COLORS.length]
-      }))
+      .map(([name, value], index) => {
+        const isReserve = name.toLowerCase().includes('poupança') || 
+                          name.toLowerCase().includes('reserva') || 
+                          name.toLowerCase().includes('investimento');
+        return {
+          name,
+          value,
+          percentage: totalExpenseAmount > 0 ? (value / totalExpenseAmount) * 100 : 0,
+          color: isReserve ? '#0284c7' : CATEGORY_COLORS[index % CATEGORY_COLORS.length]
+        };
+      })
       .sort((a, b) => b.value - a.value);
   }, [currentMonthTransactions]);
 
@@ -95,13 +175,24 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
     return sortedMonths.map(mKey => {
       const monthTxs = transactions.filter(t => t.date.startsWith(mKey));
       const receitas = monthTxs.filter(t => t.type === 'receita').reduce((sum, t) => sum + t.amount, 0);
-      const despesas = monthTxs.filter(t => t.type === 'despesa').reduce((sum, t) => sum + t.amount, 0);
-      const saldo = receitas - despesas;
+      const despesasTxs = monthTxs.filter(t => t.type === 'despesa');
+      const totalDespesas = despesasTxs.reduce((sum, t) => sum + t.amount, 0);
+
+      // Distinguish money saved/invested in reserves from regular operating expenses
+      const reservaDespesas = despesasTxs
+        .filter(isSavingsExpense)
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      const correntesDespesas = Math.max(0, totalDespesas - reservaDespesas);
+      const saldo = receitas - totalDespesas;
+
       return {
         month: formatMonthShort(mKey),
         rawMonth: mKey,
         Receitas: receitas,
-        Despesas: despesas,
+        'Despesas Correntes': correntesDespesas,
+        'Poupança & Reserva': reservaDespesas,
+        TotalDespesas: totalDespesas,
         Saldo: saldo
       };
     });
@@ -267,7 +358,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                 <BarChart3 className="w-5 h-5 text-indigo-600" />
                 Fluxo de Caixa Mensal
               </h2>
-              <p className="text-xs text-slate-700">Comparativo histórico de Receitas vs Despesas (Últimos meses)</p>
+              <p className="text-xs text-slate-700">Comparativo histórico de Receitas vs Despesas (com aplicações em reserva destacadas em azul)</p>
             </div>
             <button
               onClick={() => onNavigateToTab('transactions')}
@@ -293,25 +384,36 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                   tickFormatter={(val) => `R$ ${(val / 1000).toFixed(0)}k`} 
                   tickLine={false}
                 />
-                <Tooltip 
-                  formatter={(value: any) => [formatCurrency(Number(value)), '']}
-                  contentStyle={{ 
-                    backgroundColor: '#0f172a', 
-                    borderRadius: '12px', 
-                    border: 'none', 
-                    color: '#fff',
-                    fontSize: '12px',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-                  }}
-                />
+                <Tooltip content={<CashflowTooltip />} />
                 <Legend 
                   verticalAlign="top" 
                   height={36} 
                   iconType="circle"
                   wrapperStyle={{ fontSize: '12px', paddingTop: '4px' }}
                 />
-                <Bar dataKey="Receitas" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={28} />
-                <Bar dataKey="Despesas" fill="#f43f5e" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                <Bar 
+                  dataKey="Receitas" 
+                  name="Receitas" 
+                  fill="#10b981" 
+                  radius={[4, 4, 0, 0]} 
+                  maxBarSize={28} 
+                />
+                <Bar 
+                  dataKey="Despesas Correntes" 
+                  name="Despesas Correntes" 
+                  stackId="despesas" 
+                  fill="#f43f5e" 
+                  radius={[0, 0, 0, 0]} 
+                  maxBarSize={28} 
+                />
+                <Bar 
+                  dataKey="Poupança & Reserva" 
+                  name="Poupança & Reserva" 
+                  stackId="despesas" 
+                  fill="#0284c7" 
+                  radius={[4, 4, 0, 0]} 
+                  maxBarSize={28} 
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>
